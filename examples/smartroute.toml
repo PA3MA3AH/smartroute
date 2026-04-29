@@ -1,0 +1,26 @@
+[general]
+mode = "socks"
+listen = "127.0.0.1"
+listen_port = 1081
+final_outbound = "direct"
+
+[[nodes]]
+tag = "proxy-local"
+type = "socks"
+server = "127.0.0.1"
+port = 1080
+
+[[rules]]
+type = "domain_suffix"
+value = "youtube.com"
+outbound = "proxy-local"
+
+[[rules]]
+type = "domain_suffix"
+value = "discord.com"
+outbound = "proxy-local"
+
+[[rules]]
+type = "domain_suffix"
+value = "ru"
+outbound = "direct"

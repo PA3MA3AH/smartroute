@@ -1,0 +1,22 @@
+/target/
+/run/
+*.log
+*.pid
+
+# configs / subscriptions / generated sing-box configs
+*.toml
+*.json
+*.yaml
+*.yml
+*.conf
+
+# keep examples
+!example.toml
+!examples/**
+!README.md
+!Cargo.toml
+!Cargo.lock
+
+.env
+.env.*
+.DS_Store
