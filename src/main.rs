@@ -1,9 +1,12 @@
+mod autostart;
 mod cli;
 mod config;
 mod config_editor;
 mod daemon;
 mod diagnosis;
+mod killswitch;
 mod picker;
+mod resolve;
 mod runtime;
 mod singbox;
 mod subscription;

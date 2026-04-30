@@ -1,5 +1,6 @@
 use crate::{
     config::{load_config, validate_config},
+    resolve::resolve_domains_to_ip,
     singbox::generate_singbox_config,
 };
 use anyhow::{Context, Result};
@@ -15,6 +16,10 @@ pub const LOG_FILE: &str = "/run/smartroute/sing-box.log";
 pub const SINGBOX_CONFIG_FILE: &str = "/run/smartroute/sing-box.json";
 
 pub fn start_smartroute(input: &Path) -> Result<()> {
+    if let Err(err) = resolve_domains_to_ip(input) {
+        eprintln!("Warning: failed to resolve domains before start: {err:#}");
+    }
+
     let config = load_config(input)?;
     validate_config(&config)?;
 

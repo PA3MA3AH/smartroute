@@ -1,4 +1,9 @@
-use crate::util::{escape_toml_string, hex_to_utf8, sanitize_tag};
+use crate::{
+    config::{Node, load_config, save_config},
+    resolve::resolve_domains_to_ip,
+    util::{escape_toml_string, hex_to_utf8, sanitize_tag},
+};
+
 use anyhow::{Context, Result};
 use base64::{Engine as _, engine::general_purpose};
 use std::{collections::HashSet, fs, path::Path};
@@ -18,6 +23,69 @@ struct ParsedNode {
 }
 
 pub fn import_url(url: &str, output: &Path) -> Result<()> {
+    let nodes = download_nodes(url)?;
+
+    let count = nodes.len();
+
+    let mut toml = format!(
+        r#"[general]
+mode = "socks"
+listen = "127.0.0.1"
+listen_port = 1081
+final_outbound = "direct"
+
+[subscription]
+url = "{}"
+auto_refresh = 3600
+
+"#,
+        escape_toml_string(url)
+    );
+
+    for node in nodes {
+        write_node_toml(&mut toml, &node);
+    }
+
+    fs::write(output, toml).context("Failed to write output file")?;
+
+    let resolved = resolve_domains_to_ip(output)?;
+
+    println!("Imported {} nodes -> {}", count, output.display());
+    println!("Resolved {} domain node(s) to IP", resolved);
+
+    Ok(())
+}
+
+pub fn refresh_config_nodes_from_subscription(config_path: &Path) -> Result<usize> {
+    let mut config = load_config(config_path)?;
+
+    let Some(url) = config
+        .subscription
+        .url
+        .clone()
+        .filter(|url| !url.trim().is_empty())
+    else {
+        println!("Subscription refresh skipped: no subscription.url in config");
+        return Ok(0);
+    };
+
+    let parsed_nodes = download_nodes(&url)?;
+    let count = parsed_nodes.len();
+
+    config.nodes = parsed_nodes.into_iter().map(parsed_node_to_node).collect();
+
+    save_config(config_path, &config)?;
+    let resolved = resolve_domains_to_ip(config_path)?;
+
+    println!(
+        "Subscription refreshed: {} nodes, {} resolved to IP",
+        count, resolved
+    );
+
+    Ok(count)
+}
+
+fn download_nodes(url: &str) -> Result<Vec<ParsedNode>> {
     println!("Downloading subscription...");
 
     let resp = reqwest::blocking::get(url)
@@ -54,27 +122,22 @@ pub fn import_url(url: &str, output: &Path) -> Result<()> {
         anyhow::bail!("No supported nodes found in subscription. Supported: ss://, vless://");
     }
 
-    let count = nodes.len();
+    Ok(nodes)
+}
 
-    let mut toml = String::from(
-        r#"[general]
-mode = "socks"
-listen = "127.0.0.1"
-listen_port = 1081
-final_outbound = "direct"
-
-"#,
-    );
-
-    for node in nodes {
-        write_node_toml(&mut toml, &node);
+fn parsed_node_to_node(node: ParsedNode) -> Node {
+    Node {
+        tag: node.tag,
+        node_type: node.node_type,
+        server: node.server,
+        port: node.port,
+        uuid: node.uuid,
+        flow: node.flow,
+        security: node.security,
+        server_name: node.server_name,
+        reality_public_key: node.reality_public_key,
+        reality_short_id: node.reality_short_id,
     }
-
-    fs::write(output, toml).context("Failed to write output file")?;
-
-    println!("Imported {} nodes -> {}", count, output.display());
-
-    Ok(())
 }
 
 fn push_unique_node(

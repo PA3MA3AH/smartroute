@@ -1,8 +1,11 @@
 use crate::{
+    autostart::{disable_autostart, enable_autostart, status_autostart},
     config::{Chain, LocalProfile, Rule, load_config, validate_config},
     daemon::run_daemon,
     diagnosis::{diagnose_ai_access, diagnose_site, watch_sites},
+    killswitch::{disable_killswitch, enable_killswitch, status_killswitch},
     picker::pick_node,
+    resolve::resolve_domains_to_ip,
     runtime::{start_smartroute, status_smartroute, stop_smartroute},
     singbox::generate_singbox_config,
     subscription::import_url,
@@ -34,6 +37,20 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    KillSwitch {
+        #[command(subcommand)]
+        command: KillSwitchCommand,
+    },
+
+    Autostart {
+        #[command(subcommand)]
+        command: AutostartCommand,
+    },
+
+    ResolveDomains {
+        input: PathBuf,
+    },
+
     Daemon {
         input: PathBuf,
 
@@ -185,6 +202,25 @@ enum Commands {
 }
 
 #[derive(Subcommand)]
+enum KillSwitchCommand {
+    Enable {
+        input: PathBuf,
+
+        #[arg(long, default_value_t = true)]
+        smart: bool,
+    },
+    Disable,
+    Status,
+}
+
+#[derive(Subcommand)]
+enum AutostartCommand {
+    Enable { input: PathBuf },
+    Disable,
+    Status,
+}
+
+#[derive(Subcommand)]
 enum RuleCommand {
     List {
         input: PathBuf,
@@ -213,6 +249,35 @@ pub fn run() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::KillSwitch { command } => match command {
+            KillSwitchCommand::Enable { input, smart } => {
+                enable_killswitch(&input, smart)?;
+            }
+            KillSwitchCommand::Disable => {
+                disable_killswitch()?;
+            }
+            KillSwitchCommand::Status => {
+                status_killswitch()?;
+            }
+        },
+
+        Commands::Autostart { command } => match command {
+            AutostartCommand::Enable { input } => {
+                enable_autostart(&input)?;
+            }
+            AutostartCommand::Disable => {
+                disable_autostart()?;
+            }
+            AutostartCommand::Status => {
+                status_autostart()?;
+            }
+        },
+
+        Commands::ResolveDomains { input } => {
+            let changed = resolve_domains_to_ip(&input)?;
+            println!("Resolved {} domain node(s)", changed);
+        }
+
         Commands::Daemon {
             input,
             interval,
