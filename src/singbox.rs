@@ -15,6 +15,7 @@ pub fn generate_singbox_config(config: &SmartRouteConfig) -> Result<Value> {
                 "listen_port": config.general.listen_port
             }));
         }
+
         "tun" => {
             inbounds.push(json!({
                 "type": "tun",
@@ -27,7 +28,10 @@ pub fn generate_singbox_config(config: &SmartRouteConfig) -> Result<Value> {
                 "strict_route": false
             }));
         }
-        other => anyhow::bail!("Unsupported mode: {}", other),
+
+        other => {
+            anyhow::bail!("Unsupported mode: {}", other);
+        }
     }
 
     for profile in &config.local_profiles {
@@ -105,18 +109,21 @@ pub fn generate_singbox_config(config: &SmartRouteConfig) -> Result<Value> {
                     "outbound": rule.outbound
                 }));
             }
+
             "domain_suffix" => {
                 rules.push(json!({
                     "domain_suffix": [rule.value],
                     "outbound": rule.outbound
                 }));
             }
+
             "domain_keyword" => {
                 rules.push(json!({
                     "domain_keyword": [rule.value],
                     "outbound": rule.outbound
                 }));
             }
+
             other => {
                 anyhow::bail!("Unsupported rule type: {}", other);
             }
@@ -136,14 +143,17 @@ pub fn generate_singbox_config(config: &SmartRouteConfig) -> Result<Value> {
     }))
 }
 
-fn node_to_outbound(node: &Node, tag: &str, dialer_proxy: Option<&str>) -> Result<Value> {
+fn node_to_outbound(node: &Node, tag: &str, detour: Option<&str>) -> Result<Value> {
     let mut outbound = match node.node_type.as_str() {
-        "socks" => json!({
-            "type": "socks",
-            "tag": tag,
-            "server": node.server,
-            "server_port": node.port
-        }),
+        "socks" => {
+            json!({
+                "type": "socks",
+                "tag": tag,
+                "server": node.server,
+                "server_port": node.port
+            })
+        }
+
         "vless" => {
             let mut outbound = json!({
                 "type": "vless",
@@ -190,11 +200,14 @@ fn node_to_outbound(node: &Node, tag: &str, dialer_proxy: Option<&str>) -> Resul
 
             outbound
         }
-        other => anyhow::bail!("Unsupported node type: {}", other),
+
+        other => {
+            anyhow::bail!("Unsupported node type: {}", other);
+        }
     };
 
-    if let Some(proxy) = dialer_proxy {
-        outbound["dialer_proxy"] = json!(proxy);
+    if let Some(upstream) = detour {
+        outbound["detour"] = json!(upstream);
     }
 
     Ok(outbound)
