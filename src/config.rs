@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, fs, path::Path};
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SmartRouteConfig {
     pub general: General,
 
@@ -10,10 +10,16 @@ pub struct SmartRouteConfig {
     pub nodes: Vec<Node>,
 
     #[serde(default)]
+    pub chains: Vec<Chain>,
+
+    #[serde(default)]
+    pub local_profiles: Vec<LocalProfile>,
+
+    #[serde(default)]
     pub rules: Vec<Rule>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct General {
     #[serde(default = "default_mode")]
     pub mode: String,
@@ -27,7 +33,7 @@ pub struct General {
     pub final_outbound: String,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Node {
     pub tag: String,
 
@@ -56,7 +62,28 @@ pub struct Node {
     pub reality_short_id: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct Chain {
+    pub tag: String,
+
+    /// Ordered list of outbound tags.
+    /// Example: ["proxy-a", "proxy-b"] means: app -> SmartRoute -> proxy-a -> proxy-b -> site.
+    pub outbounds: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct LocalProfile {
+    pub tag: String,
+
+    #[serde(default = "default_listen")]
+    pub listen: String,
+
+    pub listen_port: u16,
+
+    pub outbound: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Rule {
     #[serde(rename = "type")]
     pub rule_type: String,
@@ -89,6 +116,7 @@ pub fn load_config(path: &Path) -> Result<SmartRouteConfig> {
 
 pub fn validate_config(config: &SmartRouteConfig) -> Result<()> {
     let mut outbounds = HashSet::new();
+    let mut inbound_ports = HashSet::new();
 
     outbounds.insert("direct".to_string());
     outbounds.insert("block".to_string());
@@ -101,6 +129,8 @@ pub fn validate_config(config: &SmartRouteConfig) -> Result<()> {
     if config.general.listen.trim().is_empty() {
         anyhow::bail!("general.listen cannot be empty");
     }
+
+    inbound_ports.insert(config.general.listen_port);
 
     for node in &config.nodes {
         if node.tag.trim().is_empty() {
@@ -124,11 +154,68 @@ pub fn validate_config(config: &SmartRouteConfig) -> Result<()> {
         outbounds.insert(node.tag.clone());
     }
 
+    let base_outbounds = outbounds.clone();
+
+    for chain in &config.chains {
+        if chain.tag.trim().is_empty() {
+            anyhow::bail!("Chain tag cannot be empty");
+        }
+
+        if outbounds.contains(&chain.tag) {
+            anyhow::bail!("Duplicate outbound/chain tag: {}", chain.tag);
+        }
+
+        if chain.outbounds.len() < 2 {
+            anyhow::bail!("Chain {} must contain at least 2 outbounds", chain.tag);
+        }
+
+        for member in &chain.outbounds {
+            if member == &chain.tag {
+                anyhow::bail!("Chain {} cannot reference itself", chain.tag);
+            }
+
+            if !base_outbounds.contains(member) {
+                anyhow::bail!(
+                    "Chain {} references unknown base outbound: {}",
+                    chain.tag,
+                    member
+                );
+            }
+        }
+
+        outbounds.insert(chain.tag.clone());
+    }
+
     if !outbounds.contains(&config.general.final_outbound) {
         anyhow::bail!(
             "final_outbound points to unknown outbound: {}",
             config.general.final_outbound
         );
+    }
+
+    for profile in &config.local_profiles {
+        if profile.tag.trim().is_empty() {
+            anyhow::bail!("Local profile tag cannot be empty");
+        }
+
+        if profile.listen.trim().is_empty() {
+            anyhow::bail!("Local profile {} listen cannot be empty", profile.tag);
+        }
+
+        if !inbound_ports.insert(profile.listen_port) {
+            anyhow::bail!(
+                "Duplicate local listen port: {}. Every profile needs its own port.",
+                profile.listen_port
+            );
+        }
+
+        if !outbounds.contains(&profile.outbound) {
+            anyhow::bail!(
+                "Local profile {} points to unknown outbound: {}",
+                profile.tag,
+                profile.outbound
+            );
+        }
     }
 
     for rule in &config.rules {
@@ -151,5 +238,11 @@ pub fn validate_config(config: &SmartRouteConfig) -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+pub fn save_config(path: &Path, config: &SmartRouteConfig) -> Result<()> {
+    let raw = toml::to_string_pretty(config).context("Failed to serialize SmartRoute TOML config")?;
+    fs::write(path, raw).with_context(|| format!("Failed to write config: {}", path.display()))?;
     Ok(())
 }
