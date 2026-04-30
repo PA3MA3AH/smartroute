@@ -4,6 +4,7 @@ use crate::{
     daemon::run_daemon,
     diagnosis::{diagnose_ai_access, diagnose_site, watch_sites},
     killswitch::{disable_killswitch, enable_killswitch, status_killswitch},
+    mask::{list_masks, set_mask},
     picker::pick_node,
     resolve::resolve_domains_to_ip,
     runtime::{start_smartroute, status_smartroute, stop_smartroute},
@@ -37,6 +38,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    Mask {
+        #[command(subcommand)]
+        command: MaskCommand,
+    },
+
     KillSwitch {
         #[command(subcommand)]
         command: KillSwitchCommand,
@@ -202,6 +208,27 @@ enum Commands {
 }
 
 #[derive(Subcommand)]
+enum MaskCommand {
+    List {
+        input: PathBuf,
+    },
+
+    Set {
+        input: PathBuf,
+        tag: String,
+
+        #[arg(long)]
+        server_name: Option<String>,
+
+        #[arg(long)]
+        fingerprint: Option<String>,
+
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
 enum KillSwitchCommand {
     Enable {
         input: PathBuf,
@@ -249,6 +276,28 @@ pub fn run() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Mask { command } => match command {
+            MaskCommand::List { input } => {
+                list_masks(&input)?;
+            }
+
+            MaskCommand::Set {
+                input,
+                tag,
+                server_name,
+                fingerprint,
+                output,
+            } => {
+                set_mask(
+                    &input,
+                    &tag,
+                    server_name.as_deref(),
+                    fingerprint.as_deref(),
+                    output.as_deref(),
+                )?;
+            }
+        },
+
         Commands::KillSwitch { command } => match command {
             KillSwitchCommand::Enable { input, smart } => {
                 enable_killswitch(&input, smart)?;

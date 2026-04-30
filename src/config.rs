@@ -81,6 +81,9 @@ pub struct Node {
     pub server_name: Option<String>,
 
     #[serde(default)]
+    pub utls_fingerprint: Option<String>,
+
+    #[serde(default)]
     pub reality_public_key: Option<String>,
 
     #[serde(default)]

@@ -167,6 +167,8 @@ fn node_to_outbound(node: &Node, tag: &str, detour: Option<&str>) -> Result<Valu
                 outbound["flow"] = json!(flow);
             }
 
+            let fingerprint = node.utls_fingerprint.as_deref().unwrap_or("chrome");
+
             match node.security.as_deref() {
                 Some("tls") => {
                     outbound["tls"] = json!({
@@ -174,7 +176,7 @@ fn node_to_outbound(node: &Node, tag: &str, detour: Option<&str>) -> Result<Valu
                         "server_name": node.server_name.as_deref().unwrap_or(&node.server),
                         "utls": {
                             "enabled": true,
-                            "fingerprint": "chrome"
+                            "fingerprint": fingerprint
                         }
                     });
                 }
@@ -185,7 +187,7 @@ fn node_to_outbound(node: &Node, tag: &str, detour: Option<&str>) -> Result<Valu
                         "server_name": node.server_name.as_deref().unwrap_or(&node.server),
                         "utls": {
                             "enabled": true,
-                            "fingerprint": "chrome"
+                            "fingerprint": fingerprint
                         },
                         "reality": {
                             "enabled": true,
