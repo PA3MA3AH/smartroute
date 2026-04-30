@@ -386,6 +386,8 @@ enum UiAction {
     AssignDomainToChain,
     CreateLocalPortProfile,
     ListChainsAndProfiles,
+    EditSitesConfig,
+    EditAppsConfig,
     Exit,
 }
 
@@ -495,6 +497,8 @@ fn ui_items() -> Vec<UiItem> {
         UiItem { action: UiAction::CreateLocalPortProfile, en: "Create app proxy port", ru: "Создать proxy-порт для приложения", en_hint: "Creates another local SOCKS port, e.g. 1082 for one app/profile.", ru_hint: "Создаёт отдельный локальный SOCKS-порт, например 1082 для приложения/профиля." },
         UiItem { action: UiAction::ListChainsAndProfiles, en: "List chains and app ports", ru: "Показать chains и app-порты", en_hint: "Shows configured chain proxies and local per-app SOCKS ports.", ru_hint: "Показывает chain proxies и локальные SOCKS-порты под приложения." },
         UiItem { action: UiAction::AboutProxyVpn, en: "What is this? Proxy vs VPN", ru: "Что это? Прокси vs VPN", en_hint: "Explains what SmartRoute does and does not do.", ru_hint: "Объясняет, что SmartRoute делает и чем он не является." },
+        UiItem { action: UiAction::EditSitesConfig, en: "Edit proxy for sites", ru: "Изменение прокси для сайтов", en_hint: "Select site domen and aviable proxy for it.", ru_hint: "Выберите домен сайта и доступный прокси для него."},
+        UiItem { action: UiAction::EditAppsConfig, en: "Edit proxy for apps", ru: "Изменение прокси для приложений", en_hint: "Select app and aviable proxy for it.", ru_hint: "Выберите приложение и доступный прокси для него."},
         UiItem { action: UiAction::Exit, en: "Exit", ru: "Выход", en_hint: "Close the TUI.", ru_hint: "Закрыть TUI." },
     ]
 }
@@ -689,6 +693,16 @@ fn run_ui_action(action: UiAction, input: &mut PathBuf, lang: UiLang) -> Result<
             pause(lang)?;
             Ok(None)
         }
+
+        UiAction::EditSitesConfig => {
+            crate::config_editor::edit_sites_config();
+            Ok(None)
+        }
+        UiAction::EditAppsConfig => {
+            crate::config_editor::edit_apps_config();
+            Ok(None)
+        }
+        
         UiAction::AboutProxyVpn => {
             print_about(lang);
             pause(lang)?;

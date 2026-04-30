@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, fs, path::Path};
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct SmartRouteConfig {
     pub general: General,
 
@@ -19,7 +19,7 @@ pub struct SmartRouteConfig {
     pub rules: Vec<Rule>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct General {
     #[serde(default = "default_mode")]
     pub mode: String,
@@ -33,7 +33,7 @@ pub struct General {
     pub final_outbound: String,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Node {
     pub tag: String,
 
@@ -62,7 +62,7 @@ pub struct Node {
     pub reality_short_id: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Chain {
     pub tag: String,
 
@@ -71,7 +71,7 @@ pub struct Chain {
     pub outbounds: Vec<String>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct LocalProfile {
     pub tag: String,
 
@@ -83,7 +83,7 @@ pub struct LocalProfile {
     pub outbound: String,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Rule {
     #[serde(rename = "type")]
     pub rule_type: String,
@@ -238,5 +238,11 @@ pub fn validate_config(config: &SmartRouteConfig) -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+pub fn save_config(path: &Path, config: &SmartRouteConfig) -> Result<()> {
+    let raw = toml::to_string_pretty(config).context("Failed to serialize SmartRoute TOML config")?;
+    fs::write(path, raw).with_context(|| format!("Failed to write config: {}", path.display()))?;
     Ok(())
 }
