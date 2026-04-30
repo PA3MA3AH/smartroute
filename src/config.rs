@@ -7,6 +7,9 @@ pub struct SmartRouteConfig {
     pub general: General,
 
     #[serde(default)]
+    pub subscription: SubscriptionSettings,
+
+    #[serde(default)]
     pub nodes: Vec<Node>,
 
     #[serde(default)]
@@ -17,6 +20,28 @@ pub struct SmartRouteConfig {
 
     #[serde(default)]
     pub rules: Vec<Rule>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct SubscriptionSettings {
+    #[serde(default)]
+    pub url: Option<String>,
+
+    #[serde(default = "default_auto_refresh")]
+    pub auto_refresh: u64,
+}
+
+impl Default for SubscriptionSettings {
+    fn default() -> Self {
+        Self {
+            url: None,
+            auto_refresh: default_auto_refresh(),
+        }
+    }
+}
+
+fn default_auto_refresh() -> u64 {
+    3600
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -242,7 +267,8 @@ pub fn validate_config(config: &SmartRouteConfig) -> Result<()> {
 }
 
 pub fn save_config(path: &Path, config: &SmartRouteConfig) -> Result<()> {
-    let raw = toml::to_string_pretty(config).context("Failed to serialize SmartRoute TOML config")?;
+    let raw =
+        toml::to_string_pretty(config).context("Failed to serialize SmartRoute TOML config")?;
     fs::write(path, raw).with_context(|| format!("Failed to write config: {}", path.display()))?;
     Ok(())
 }

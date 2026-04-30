@@ -1,6 +1,8 @@
 use crate::{
+    config::load_config,
     diagnosis::diagnose_site,
     runtime::{start_smartroute, stop_smartroute},
+    subscription::refresh_config_nodes_from_subscription,
 };
 use anyhow::{Context, Result};
 use std::{
@@ -38,6 +40,15 @@ pub fn run_daemon(
     println!();
 
     let mut last_modified = get_modified_time(input)?;
+    let mut refresh_interval = read_auto_refresh_interval(input)?;
+    let mut last_refresh = Instant::now();
+
+    if refresh_interval == 0 {
+        println!("Subscription auto-refresh: disabled");
+    } else {
+        println!("Subscription auto-refresh interval: {}s", refresh_interval);
+    }
+
     let mut last_diagnose = Instant::now()
         .checked_sub(Duration::from_secs(diagnose_interval))
         .unwrap_or_else(Instant::now);
@@ -59,8 +70,39 @@ pub fn run_daemon(
             println!("Config changed, restarting SmartRoute...");
             last_modified = current_modified;
 
+            match read_auto_refresh_interval(input) {
+                Ok(new_interval) => refresh_interval = new_interval,
+                Err(err) => eprintln!("Failed to read auto-refresh interval: {}", err),
+            }
+
             if let Err(err) = restart_smartroute(input) {
                 eprintln!("Restart failed: {}", err);
+            }
+        }
+
+        if refresh_interval > 0 && last_refresh.elapsed() >= Duration::from_secs(refresh_interval) {
+            println!("Running subscription auto-refresh...");
+
+            match refresh_config_nodes_from_subscription(input) {
+                Ok(0) => {
+                    last_refresh = Instant::now();
+                }
+                Ok(_) => {
+                    last_refresh = Instant::now();
+
+                    match get_modified_time(input) {
+                        Ok(time) => last_modified = time,
+                        Err(err) => eprintln!("Failed to read config modified time: {}", err),
+                    }
+
+                    if let Err(err) = restart_smartroute(input) {
+                        eprintln!("Restart after subscription refresh failed: {}", err);
+                    }
+                }
+                Err(err) => {
+                    last_refresh = Instant::now();
+                    eprintln!("Subscription auto-refresh failed: {}", err);
+                }
             }
         }
 
@@ -77,13 +119,13 @@ pub fn run_daemon(
                 "chat.openai.com",
                 "cdn.oaistatic.com",
             ];
-            
+
             for domain in &domains {
                 if sticky_domains.iter().any(|d| domain.ends_with(d)) {
                     println!("Skipping auto-diagnose for sticky domain: {}", domain);
                     continue;
                 }
-            
+
                 if let Err(err) = diagnose_site(
                     input,
                     None,
@@ -113,6 +155,11 @@ pub fn run_daemon(
     }
 }
 
+fn read_auto_refresh_interval(input: &Path) -> Result<u64> {
+    let config = load_config(input)?;
+    Ok(config.subscription.auto_refresh)
+}
+
 fn restart_smartroute(input: &Path) -> Result<()> {
     let _ = stop_smartroute();
 
@@ -123,8 +170,8 @@ fn restart_smartroute(input: &Path) -> Result<()> {
 }
 
 fn get_modified_time(path: &Path) -> Result<SystemTime> {
-    let metadata = fs::metadata(path)
-        .with_context(|| format!("Failed to stat {}", path.display()))?;
+    let metadata =
+        fs::metadata(path).with_context(|| format!("Failed to stat {}", path.display()))?;
 
     metadata
         .modified()
