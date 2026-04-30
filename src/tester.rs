@@ -1,5 +1,5 @@
 use crate::{
-    config::{load_config, validate_config, Node, SmartRouteConfig},
+    config::{Node, SmartRouteConfig, load_config, validate_config},
     singbox::generate_singbox_config,
     util::{sanitize_tag, write_config_toml},
 };
@@ -154,9 +154,14 @@ pub fn test_nodes(input: &Path, timeout: u64, jobs: usize, samples: usize) -> Re
 
     println!("Testing nodes through real temporary SOCKS instances...");
     println!("target: {}", target);
-    println!("timeout: {}s, jobs: {}, samples: {}", timeout, jobs, samples);
+    println!(
+        "timeout: {}s, jobs: {}, samples: {}",
+        timeout, jobs, samples
+    );
     println!("score = median + jitter*2 + loss%*5");
-    println!("IMPORTANT: each candidate is tested with all rules cleared, so old domain rules cannot fake the result.\n");
+    println!(
+        "IMPORTANT: each candidate is tested with all rules cleared, so old domain rules cannot fake the result.\n"
+    );
 
     let results = test_all_nodes_parallel(&config, target, timeout, jobs, samples)?;
     print_results(results);
@@ -182,7 +187,10 @@ pub fn auto_select_fastest(
 
     println!("Finding best stable node through real temporary SOCKS instances...");
     println!("target: {}", target);
-    println!("timeout: {}s, jobs: {}, samples: {}", timeout, jobs, samples);
+    println!(
+        "timeout: {}s, jobs: {}, samples: {}",
+        timeout, jobs, samples
+    );
     println!("score = median + jitter*2 + loss%*5\n");
 
     let results = test_all_nodes_parallel(&config, target, timeout, jobs, samples)?;
@@ -203,7 +211,8 @@ pub fn auto_select_fastest(
                     stability_label(median, jitter, result.loss_percent)
                 );
 
-                if result.loss_percent < 50 && (best.is_none() || score < best.as_ref().unwrap().1) {
+                if result.loss_percent < 50 && (best.is_none() || score < best.as_ref().unwrap().1)
+                {
                     best = Some((
                         result.tag.clone(),
                         score,
@@ -360,16 +369,29 @@ fn test_node_samples(
 
 fn is_ai_access_url(url: &str) -> bool {
     let u = url.to_ascii_lowercase();
-    AI_ACCESS_DOMAINS.iter().any(|domain| {
-        u.contains(&format!("://{}", domain)) || u.contains(&format!(".{}", domain))
-    })
+    AI_ACCESS_DOMAINS
+        .iter()
+        .any(|domain| u.contains(&format!("://{}", domain)) || u.contains(&format!(".{}", domain)))
 }
 
 const AI_ACCESS_DOMAINS: &[&str] = &[
-    "chatgpt.com", "openai.com", "claude.com", "gemini.google.com",
-    "aistudio.google.com", "copilot.microsoft.com", "bing.com",
-    "perplexity.ai", "venice.ai", "poe.com", "grok.com", "x.ai",
-    "meta.ai", "mistral.ai", "chat.mistral.ai", "you.com", "phind.com",
+    "chatgpt.com",
+    "openai.com",
+    "claude.com",
+    "gemini.google.com",
+    "aistudio.google.com",
+    "copilot.microsoft.com",
+    "bing.com",
+    "perplexity.ai",
+    "venice.ai",
+    "poe.com",
+    "grok.com",
+    "x.ai",
+    "meta.ai",
+    "mistral.ai",
+    "chat.mistral.ai",
+    "you.com",
+    "phind.com",
     "huggingface.co",
 ];
 
@@ -378,8 +400,11 @@ fn ai_geo_block_reason(effective_url: &str, body: &str) -> Option<String> {
     let text = body.to_ascii_lowercase();
 
     let url_markers = [
-        "app-unavailable-in-region", "unsupported-country", "unsupported_region",
-        "unavailable-in-region", "region-not-supported",
+        "app-unavailable-in-region",
+        "unsupported-country",
+        "unsupported_region",
+        "unavailable-in-region",
+        "region-not-supported",
     ];
     for marker in url_markers {
         if url.contains(marker) {
@@ -388,16 +413,26 @@ fn ai_geo_block_reason(effective_url: &str, body: &str) -> Option<String> {
     }
 
     let body_markers = [
-        "error 1009", "access denied",
+        "error 1009",
+        "access denied",
         "has banned the country or region your ip address is in",
-        "not available in your country", "not available in your region",
-        "isn't available in your country", "isnt available in your country",
-        "is not available in your country", "is not available in your region",
-        "unavailable in your region", "unsupported country", "unsupported region",
-        "your country is not supported", "your region is not supported",
-        "gemini isn't supported in your country", "gemini is not supported in your country",
-        "gemini пока не поддерживается в вашей стране", "недоступно в вашем регионе",
-        "недоступен в вашем регионе", "недоступно в вашей стране",
+        "not available in your country",
+        "not available in your region",
+        "isn't available in your country",
+        "isnt available in your country",
+        "is not available in your country",
+        "is not available in your region",
+        "unavailable in your region",
+        "unsupported country",
+        "unsupported region",
+        "your country is not supported",
+        "your region is not supported",
+        "gemini isn't supported in your country",
+        "gemini is not supported in your country",
+        "gemini пока не поддерживается в вашей стране",
+        "недоступно в вашем регионе",
+        "недоступен в вашем регионе",
+        "недоступно в вашей стране",
         "пока не поддерживается в вашей стране",
     ];
     for marker in body_markers {
@@ -411,7 +446,9 @@ fn ai_geo_block_reason(effective_url: &str, body: &str) -> Option<String> {
 fn read_file_limited(path: &str, limit: usize) -> String {
     match fs::read(path) {
         Ok(mut data) => {
-            if data.len() > limit { data.truncate(limit); }
+            if data.len() > limit {
+                data.truncate(limit);
+            }
             String::from_utf8_lossy(&data).to_string()
         }
         Err(_) => String::new(),
@@ -458,10 +495,15 @@ fn test_single(
 
     if child.try_wait()?.is_some() {
         let _ = fs::remove_file(&config_path);
-        return Ok(ProbeResult::Fail("temporary sing-box exited early".to_string()));
+        return Ok(ProbeResult::Fail(
+            "temporary sing-box exited early".to_string(),
+        ));
     }
 
-    let body_path = format!("/tmp/smartroute-test-body-{}-{}-{}.html", pid, port, safe_tag);
+    let body_path = format!(
+        "/tmp/smartroute-test-body-{}-{}-{}.html",
+        pid, port, safe_tag
+    );
     let ai_access_probe = is_ai_access_url(url);
     let start = Instant::now();
 
@@ -509,7 +551,11 @@ fn test_single(
     let mut parts = stdout.splitn(2, ' ');
     let status_code: u16 = parts.next().unwrap_or("0").trim().parse().unwrap_or(0);
     let effective_url = parts.next().unwrap_or(url).trim().to_string();
-    let body = if ai_access_probe { read_file_limited(&body_path, 512 * 1024) } else { String::new() };
+    let body = if ai_access_probe {
+        read_file_limited(&body_path, 512 * 1024)
+    } else {
+        String::new()
+    };
     let _ = fs::remove_file(&body_path);
 
     if output.status.success() && (200..500).contains(&status_code) {
@@ -526,7 +572,12 @@ fn test_single(
     }
 
     let err = if stderr.is_empty() {
-        format!("curl failed, http_code={}, url={}, exit={:?}", status_code, effective_url, output.status.code())
+        format!(
+            "curl failed, http_code={}, url={}, exit={:?}",
+            status_code,
+            effective_url,
+            output.status.code()
+        )
     } else {
         format!(
             "curl failed, http_code={}, url={}, exit={:?}, stderr={}",

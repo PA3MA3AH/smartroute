@@ -1,15 +1,10 @@
 use crate::{
-    config::{load_config, validate_config, Rule},
+    config::{Rule, load_config, validate_config},
     tester::{find_best_node_for_url, test_single_node_for_url},
     util::write_config_toml,
 };
 use anyhow::{Context, Result};
-use std::{
-    path::Path,
-    process::Command,
-    thread,
-    time::Duration,
-};
+use std::{path::Path, process::Command, thread, time::Duration};
 
 pub fn diagnose_site(
     input: &Path,
@@ -30,7 +25,8 @@ pub fn diagnose_site(
     let mut config = load_config(input)?;
     validate_config(&config)?;
 
-    if let Some(existing_owned) = existing_rule_outbound(&config.rules, &domain).map(str::to_string) {
+    if let Some(existing_owned) = existing_rule_outbound(&config.rules, &domain).map(str::to_string)
+    {
         println!("Existing rule found: {} -> {}", domain, existing_owned);
 
         let proxy_ok = proxy_check(&domain, timeout)?;
@@ -44,18 +40,24 @@ pub fn diagnose_site(
         }
 
         if proxy_ok {
-            println!("Existing route passes real HTTPS check. Checking if a much better route exists...");
+            println!(
+                "Existing route passes real HTTPS check. Checking if a much better route exists..."
+            );
         } else {
             println!("Existing route FAILED real HTTPS check. Hysteresis will be ignored.");
         }
 
-        let Some(best) = find_best_node_for_url(&config, &target_url, timeout, jobs, samples)? else {
+        let Some(best) = find_best_node_for_url(&config, &target_url, timeout, jobs, samples)?
+        else {
             if proxy_ok {
                 println!("No better working proxy found. Keeping existing route.");
                 return Ok(());
             }
 
-            anyhow::bail!("Existing route failed and no replacement could open {}", target_url);
+            anyhow::bail!(
+                "Existing route failed and no replacement could open {}",
+                target_url
+            );
         };
 
         println!(
@@ -74,7 +76,9 @@ pub fn diagnose_site(
             if proxy_ok {
                 println!("Same route as existing and HTTPS check is OK. No change.");
             } else {
-                println!("Best candidate is the same as existing, but current live check failed. Restart may still help.");
+                println!(
+                    "Best candidate is the same as existing, but current live check failed. Restart may still help."
+                );
             }
             return Ok(());
         }
@@ -328,7 +332,10 @@ fn proxy_check(domain: &str, timeout: u64) -> Result<bool> {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         let _ = std::fs::remove_file(&body_path);
         if stderr.is_empty() {
-            println!("Proxy HTTPS check failed at curl level, exit={:?}", output.status.code());
+            println!(
+                "Proxy HTTPS check failed at curl level, exit={:?}",
+                output.status.code()
+            );
         } else {
             println!(
                 "Proxy HTTPS check failed at curl level, exit={:?}: {}",
@@ -392,7 +399,9 @@ fn is_ai_access_domain(domain: &str) -> bool {
         "huggingface.co",
     ];
 
-    domains.iter().any(|item| d == *item || d.ends_with(&format!(".{}", item)))
+    domains
+        .iter()
+        .any(|item| d == *item || d.ends_with(&format!(".{}", item)))
 }
 
 fn ai_geo_block_reason(effective_url: &str, body: &str) -> Option<String> {

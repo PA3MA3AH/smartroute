@@ -242,7 +242,8 @@ pub fn validate_config(config: &SmartRouteConfig) -> Result<()> {
 }
 
 pub fn save_config(path: &Path, config: &SmartRouteConfig) -> Result<()> {
-    let raw = toml::to_string_pretty(config).context("Failed to serialize SmartRoute TOML config")?;
+    let raw =
+        toml::to_string_pretty(config).context("Failed to serialize SmartRoute TOML config")?;
     fs::write(path, raw).with_context(|| format!("Failed to write config: {}", path.display()))?;
     Ok(())
 }

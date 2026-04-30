@@ -77,13 +77,13 @@ pub fn run_daemon(
                 "chat.openai.com",
                 "cdn.oaistatic.com",
             ];
-            
+
             for domain in &domains {
                 if sticky_domains.iter().any(|d| domain.ends_with(d)) {
                     println!("Skipping auto-diagnose for sticky domain: {}", domain);
                     continue;
                 }
-            
+
                 if let Err(err) = diagnose_site(
                     input,
                     None,
@@ -123,8 +123,8 @@ fn restart_smartroute(input: &Path) -> Result<()> {
 }
 
 fn get_modified_time(path: &Path) -> Result<SystemTime> {
-    let metadata = fs::metadata(path)
-        .with_context(|| format!("Failed to stat {}", path.display()))?;
+    let metadata =
+        fs::metadata(path).with_context(|| format!("Failed to stat {}", path.display()))?;
 
     metadata
         .modified()

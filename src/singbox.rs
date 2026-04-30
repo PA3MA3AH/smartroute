@@ -1,6 +1,6 @@
 use crate::config::{Node, SmartRouteConfig};
 use anyhow::Result;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 
 pub fn generate_singbox_config(config: &SmartRouteConfig) -> Result<Value> {
@@ -70,7 +70,11 @@ pub fn generate_singbox_config(config: &SmartRouteConfig) -> Result<Value> {
 
         for (idx, tag) in chain.outbounds.iter().enumerate().skip(1) {
             let node = node_map.get(tag).ok_or_else(|| {
-                anyhow::anyhow!("Chain {} references unsupported/unknown outbound: {}", chain.tag, tag)
+                anyhow::anyhow!(
+                    "Chain {} references unsupported/unknown outbound: {}",
+                    chain.tag,
+                    tag
+                )
             })?;
 
             let generated_tag = if idx + 1 == chain.outbounds.len() {

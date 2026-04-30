@@ -37,9 +37,7 @@ fn collect_outbounds(config: &crate::config::SmartRouteConfig) -> Vec<String> {
     out
 }
 
-pub fn edit_sites_config() {
-    let path = Path::new("imported.toml");
-
+pub fn edit_sites_config(path: &Path) {
     let mut config = match load_config(path) {
         Ok(cfg) => cfg,
         Err(e) => {
@@ -57,10 +55,7 @@ pub fn edit_sites_config() {
         for (i, rule) in config.rules.iter().enumerate() {
             println!(
                 "[{}] {} {} -> {} | ping: -",
-                i,
-                rule.rule_type,
-                rule.value,
-                rule.outbound
+                i, rule.rule_type, rule.value, rule.outbound
             );
         }
 
@@ -156,9 +151,7 @@ pub fn edit_sites_config() {
     }
 }
 
-pub fn edit_apps_config() {
-    let path = Path::new("imported.toml");
-
+pub fn edit_apps_config(path: &Path) {
     let mut config = match load_config(path) {
         Ok(cfg) => cfg,
         Err(e) => {
@@ -176,11 +169,7 @@ pub fn edit_apps_config() {
         for (i, profile) in config.local_profiles.iter().enumerate() {
             println!(
                 "[{}] {} {}:{} -> {} | ping: -",
-                i,
-                profile.tag,
-                profile.listen,
-                profile.listen_port,
-                profile.outbound
+                i, profile.tag, profile.listen, profile.listen_port, profile.outbound
             );
         }
 

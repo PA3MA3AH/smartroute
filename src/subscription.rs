@@ -1,6 +1,6 @@
 use crate::util::{escape_toml_string, hex_to_utf8, sanitize_tag};
 use anyhow::{Context, Result};
-use base64::{engine::general_purpose, Engine as _};
+use base64::{Engine as _, engine::general_purpose};
 use std::{collections::HashSet, fs, path::Path};
 
 #[derive(Debug)]
@@ -77,7 +77,11 @@ final_outbound = "direct"
     Ok(())
 }
 
-fn push_unique_node(nodes: &mut Vec<ParsedNode>, used_tags: &mut HashSet<String>, mut node: ParsedNode) {
+fn push_unique_node(
+    nodes: &mut Vec<ParsedNode>,
+    used_tags: &mut HashSet<String>,
+    mut node: ParsedNode,
+) {
     let base = node.tag.clone();
     let mut tag = base.clone();
     let mut i = 1;
@@ -113,10 +117,16 @@ port = {}
         toml.push_str(&format!("flow = \"{}\"\n", escape_toml_string(flow)));
     }
     if let Some(security) = &node.security {
-        toml.push_str(&format!("security = \"{}\"\n", escape_toml_string(security)));
+        toml.push_str(&format!(
+            "security = \"{}\"\n",
+            escape_toml_string(security)
+        ));
     }
     if let Some(server_name) = &node.server_name {
-        toml.push_str(&format!("server_name = \"{}\"\n", escape_toml_string(server_name)));
+        toml.push_str(&format!(
+            "server_name = \"{}\"\n",
+            escape_toml_string(server_name)
+        ));
     }
     if let Some(pk) = &node.reality_public_key {
         toml.push_str(&format!(

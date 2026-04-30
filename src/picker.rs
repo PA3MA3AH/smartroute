@@ -22,11 +22,7 @@ pub fn pick_node(input: &Path, output: Option<&Path>) -> Result<()> {
     for (i, node) in config.nodes.iter().enumerate() {
         println!(
             "[{}] {} ({}:{} {})",
-            i,
-            node.tag,
-            node.server,
-            node.port,
-            node.node_type
+            i, node.tag, node.server, node.port, node.node_type
         );
     }
 
