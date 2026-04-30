@@ -168,6 +168,53 @@ pub fn diagnose_site(
     Ok(())
 }
 
+pub fn diagnose_ai_access(
+    input: &Path,
+    timeout: u64,
+    jobs: usize,
+    samples: usize,
+    hysteresis_ms: u64,
+) -> Result<()> {
+    let domains = [
+        "chatgpt.com",
+        "claude.com",
+        "gemini.google.com",
+        "aistudio.google.com",
+        "venice.ai",
+        "copilot.microsoft.com",
+        "perplexity.ai",
+        "poe.com",
+        "grok.com",
+        "meta.ai",
+        "chat.mistral.ai",
+        "you.com",
+        "phind.com",
+    ];
+
+    println!("AI access diagnose started");
+    println!("This checks TLS + HTTP + geo-block pages, not just ping.");
+    println!();
+
+    for domain in domains {
+        println!("────────────────────────────────────────────────────────");
+        if let Err(err) = diagnose_site(
+            input,
+            None,
+            domain,
+            timeout,
+            jobs,
+            samples,
+            hysteresis_ms,
+            true,
+        ) {
+            eprintln!("AI diagnose failed for {}: {}", domain, err);
+        }
+        println!();
+    }
+
+    Ok(())
+}
+
 pub fn watch_sites(
     input: &Path,
     domains: Vec<String>,
@@ -188,23 +235,7 @@ pub fn watch_sites(
     println!();
 
     loop {
-        let sticky_domains = [
-            "chatgpt.com",
-            "openai.com",
-            "oaistatic.com",
-            "oaiusercontent.com",
-            "auth.openai.com",
-            "chat.openai.com",
-            "cdn.oaistatic.com",
-        ];
-        
         for domain in &domains {
-            if sticky_domains.iter().any(|d| domain.ends_with(d)) {
-                println!("Skipping auto-diagnose for sticky domain: {}", domain);
-                println!();
-                continue;
-            }
-        
             let _ = diagnose_site(
                 input,
                 None,
@@ -215,7 +246,6 @@ pub fn watch_sites(
                 hysteresis_ms,
                 false,
             );
-        
             println!();
         }
 
@@ -261,6 +291,11 @@ fn direct_check(domain: &str, timeout: u64) -> Result<bool> {
 
 fn proxy_check(domain: &str, timeout: u64) -> Result<bool> {
     let url = format!("https://{}", domain);
+    let body_path = format!(
+        "/tmp/smartroute-live-proxy-check-{}-{}.html",
+        std::process::id(),
+        domain.replace('/', "_").replace(':', "_")
+    );
 
     let output = Command::new("curl")
         .arg("--noproxy")
@@ -273,10 +308,12 @@ fn proxy_check(domain: &str, timeout: u64) -> Result<bool> {
         .arg("-m")
         .arg(timeout.to_string())
         .arg("-sS")
+        .arg("-A")
+        .arg("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/123 Safari/537.36")
         .arg("-o")
-        .arg("/dev/null")
+        .arg(&body_path)
         .arg("-w")
-        .arg("%{http_code}")
+        .arg("%{http_code} %{url_effective}")
         .arg(&url)
         .env_remove("http_proxy")
         .env_remove("https_proxy")
@@ -289,6 +326,7 @@ fn proxy_check(domain: &str, timeout: u64) -> Result<bool> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let _ = std::fs::remove_file(&body_path);
         if stderr.is_empty() {
             println!("Proxy HTTPS check failed at curl level, exit={:?}", output.status.code());
         } else {
@@ -301,12 +339,123 @@ fn proxy_check(domain: &str, timeout: u64) -> Result<bool> {
         return Ok(false);
     }
 
-    let code_raw = String::from_utf8_lossy(&output.stdout);
-    let code: u16 = code_raw.trim().parse().unwrap_or(0);
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let mut parts = stdout.splitn(2, ' ');
+    let code: u16 = parts.next().unwrap_or("0").trim().parse().unwrap_or(0);
+    let effective_url = parts.next().unwrap_or(&url).trim().to_string();
+    let body = if is_ai_access_domain(domain) {
+        read_file_limited(&body_path, 512 * 1024)
+    } else {
+        String::new()
+    };
+    let _ = std::fs::remove_file(&body_path);
 
     println!("Proxy HTTP status: {}", code);
+    if effective_url != url {
+        println!("Proxy effective URL: {}", effective_url);
+    }
 
-    Ok((200..500).contains(&code))
+    if !(200..500).contains(&code) {
+        return Ok(false);
+    }
+
+    if is_ai_access_domain(domain) {
+        if let Some(reason) = ai_geo_block_reason(&effective_url, &body) {
+            println!("AI access blocked: {}", reason);
+            return Ok(false);
+        }
+    }
+
+    Ok(true)
+}
+
+fn is_ai_access_domain(domain: &str) -> bool {
+    let d = domain.to_ascii_lowercase();
+    let domains = [
+        "chatgpt.com",
+        "openai.com",
+        "claude.com",
+        "gemini.google.com",
+        "aistudio.google.com",
+        "copilot.microsoft.com",
+        "bing.com",
+        "perplexity.ai",
+        "venice.ai",
+        "poe.com",
+        "grok.com",
+        "x.ai",
+        "meta.ai",
+        "mistral.ai",
+        "chat.mistral.ai",
+        "you.com",
+        "phind.com",
+        "huggingface.co",
+    ];
+
+    domains.iter().any(|item| d == *item || d.ends_with(&format!(".{}", item)))
+}
+
+fn ai_geo_block_reason(effective_url: &str, body: &str) -> Option<String> {
+    let url = effective_url.to_ascii_lowercase();
+    let text = body.to_ascii_lowercase();
+
+    let url_markers = [
+        "app-unavailable-in-region",
+        "unsupported-country",
+        "unsupported_region",
+        "unavailable-in-region",
+        "region-not-supported",
+    ];
+
+    for marker in url_markers {
+        if url.contains(marker) {
+            return Some(format!("geo-block redirect/url marker: {}", marker));
+        }
+    }
+
+    let body_markers = [
+        "error 1009",
+        "access denied",
+        "has banned the country or region your ip address is in",
+        "not available in your country",
+        "not available in your region",
+        "isn't available in your country",
+        "isnt available in your country",
+        "is not available in your country",
+        "is not available in your region",
+        "unavailable in your region",
+        "unsupported country",
+        "unsupported region",
+        "your country is not supported",
+        "your region is not supported",
+        "gemini isn't supported in your country",
+        "gemini is not supported in your country",
+        "gemini пока не поддерживается в вашей стране",
+        "недоступно в вашем регионе",
+        "недоступен в вашем регионе",
+        "недоступно в вашей стране",
+        "пока не поддерживается в вашей стране",
+    ];
+
+    for marker in body_markers {
+        if text.contains(marker) {
+            return Some(format!("geo-block body marker: {}", marker));
+        }
+    }
+
+    None
+}
+
+fn read_file_limited(path: &str, limit: usize) -> String {
+    match std::fs::read(path) {
+        Ok(mut data) => {
+            if data.len() > limit {
+                data.truncate(limit);
+            }
+            String::from_utf8_lossy(&data).to_string()
+        }
+        Err(_) => String::new(),
+    }
 }
 
 fn save_config(

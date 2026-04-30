@@ -358,6 +358,66 @@ fn test_node_samples(
     })
 }
 
+fn is_ai_access_url(url: &str) -> bool {
+    let u = url.to_ascii_lowercase();
+    AI_ACCESS_DOMAINS.iter().any(|domain| {
+        u.contains(&format!("://{}", domain)) || u.contains(&format!(".{}", domain))
+    })
+}
+
+const AI_ACCESS_DOMAINS: &[&str] = &[
+    "chatgpt.com", "openai.com", "claude.com", "gemini.google.com",
+    "aistudio.google.com", "copilot.microsoft.com", "bing.com",
+    "perplexity.ai", "venice.ai", "poe.com", "grok.com", "x.ai",
+    "meta.ai", "mistral.ai", "chat.mistral.ai", "you.com", "phind.com",
+    "huggingface.co",
+];
+
+fn ai_geo_block_reason(effective_url: &str, body: &str) -> Option<String> {
+    let url = effective_url.to_ascii_lowercase();
+    let text = body.to_ascii_lowercase();
+
+    let url_markers = [
+        "app-unavailable-in-region", "unsupported-country", "unsupported_region",
+        "unavailable-in-region", "region-not-supported",
+    ];
+    for marker in url_markers {
+        if url.contains(marker) {
+            return Some(format!("geo-block redirect/url marker: {}", marker));
+        }
+    }
+
+    let body_markers = [
+        "error 1009", "access denied",
+        "has banned the country or region your ip address is in",
+        "not available in your country", "not available in your region",
+        "isn't available in your country", "isnt available in your country",
+        "is not available in your country", "is not available in your region",
+        "unavailable in your region", "unsupported country", "unsupported region",
+        "your country is not supported", "your region is not supported",
+        "gemini isn't supported in your country", "gemini is not supported in your country",
+        "gemini пока не поддерживается в вашей стране", "недоступно в вашем регионе",
+        "недоступен в вашем регионе", "недоступно в вашей стране",
+        "пока не поддерживается в вашей стране",
+    ];
+    for marker in body_markers {
+        if text.contains(marker) {
+            return Some(format!("geo-block body marker: {}", marker));
+        }
+    }
+    None
+}
+
+fn read_file_limited(path: &str, limit: usize) -> String {
+    match fs::read(path) {
+        Ok(mut data) => {
+            if data.len() > limit { data.truncate(limit); }
+            String::from_utf8_lossy(&data).to_string()
+        }
+        Err(_) => String::new(),
+    }
+}
+
 #[derive(Debug)]
 enum ProbeResult {
     Ok(u128),
@@ -401,6 +461,8 @@ fn test_single(
         return Ok(ProbeResult::Fail("temporary sing-box exited early".to_string()));
     }
 
+    let body_path = format!("/tmp/smartroute-test-body-{}-{}-{}.html", pid, port, safe_tag);
+    let ai_access_probe = is_ai_access_url(url);
     let start = Instant::now();
 
     let output = Command::new("curl")
@@ -414,10 +476,12 @@ fn test_single(
         .arg(timeout.to_string())
         .arg("-sS")
         .arg("-L")
+        .arg("-A")
+        .arg("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/123 Safari/537.36")
         .arg("-o")
-        .arg("/dev/null")
+        .arg(&body_path)
         .arg("-w")
-        .arg("%{http_code}")
+        .arg("%{http_code} %{url_effective}")
         .arg(url)
         .env_remove("http_proxy")
         .env_remove("https_proxy")
@@ -434,23 +498,40 @@ fn test_single(
 
     let output = match output {
         Ok(output) => output,
-        Err(err) => return Ok(ProbeResult::Fail(format!("failed to run curl: {}", err))),
+        Err(err) => {
+            let _ = fs::remove_file(&body_path);
+            return Ok(ProbeResult::Fail(format!("failed to run curl: {}", err)));
+        }
     };
 
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-    let status_code: u16 = stdout.parse().unwrap_or(0);
+    let mut parts = stdout.splitn(2, ' ');
+    let status_code: u16 = parts.next().unwrap_or("0").trim().parse().unwrap_or(0);
+    let effective_url = parts.next().unwrap_or(url).trim().to_string();
+    let body = if ai_access_probe { read_file_limited(&body_path, 512 * 1024) } else { String::new() };
+    let _ = fs::remove_file(&body_path);
 
     if output.status.success() && (200..500).contains(&status_code) {
+        if ai_access_probe {
+            if let Some(reason) = ai_geo_block_reason(&effective_url, &body) {
+                return Ok(ProbeResult::Fail(format!(
+                    "AI access blocked through this IP: {}; http_code={}, url={}",
+                    reason, status_code, effective_url
+                )));
+            }
+        }
+
         return Ok(ProbeResult::Ok(duration.as_millis()));
     }
 
     let err = if stderr.is_empty() {
-        format!("curl failed, http_code={}, exit={:?}", status_code, output.status.code())
+        format!("curl failed, http_code={}, url={}, exit={:?}", status_code, effective_url, output.status.code())
     } else {
         format!(
-            "curl failed, http_code={}, exit={:?}, stderr={}",
+            "curl failed, http_code={}, url={}, exit={:?}, stderr={}",
             status_code,
+            effective_url,
             output.status.code(),
             stderr
         )

@@ -1,27 +1,43 @@
-use crate::config::SmartRouteConfig;
+use crate::config::{Node, SmartRouteConfig};
 use anyhow::Result;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 
 pub fn generate_singbox_config(config: &SmartRouteConfig) -> Result<Value> {
-    let inbound = match config.general.mode.as_str() {
-        "socks" => json!({
-            "type": "socks",
-            "tag": "socks-in",
-            "listen": config.general.listen,
-            "listen_port": config.general.listen_port
-        }),
-        "tun" => json!({
-            "type": "tun",
-            "tag": "tun-in",
-            "interface_name": "smartroute0",
-            "address": [
-                "172.19.0.1/30"
-            ],
-            "auto_route": true,
-            "strict_route": false
-        }),
+    let mut inbounds = Vec::new();
+
+    match config.general.mode.as_str() {
+        "socks" => {
+            inbounds.push(json!({
+                "type": "socks",
+                "tag": "socks-in",
+                "listen": config.general.listen,
+                "listen_port": config.general.listen_port
+            }));
+        }
+        "tun" => {
+            inbounds.push(json!({
+                "type": "tun",
+                "tag": "tun-in",
+                "interface_name": "smartroute0",
+                "address": [
+                    "172.19.0.1/30"
+                ],
+                "auto_route": true,
+                "strict_route": false
+            }));
+        }
         other => anyhow::bail!("Unsupported mode: {}", other),
-    };
+    }
+
+    for profile in &config.local_profiles {
+        inbounds.push(json!({
+            "type": "socks",
+            "tag": profile.tag,
+            "listen": profile.listen,
+            "listen_port": profile.listen_port
+        }));
+    }
 
     let mut outbounds = Vec::new();
 
@@ -35,71 +51,47 @@ pub fn generate_singbox_config(config: &SmartRouteConfig) -> Result<Value> {
         "tag": "block"
     }));
 
+    let node_map: HashMap<String, Node> = config
+        .nodes
+        .iter()
+        .map(|node| (node.tag.clone(), node.clone()))
+        .collect();
+
     for node in &config.nodes {
-        match node.node_type.as_str() {
-            "socks" => {
-                outbounds.push(json!({
-                    "type": "socks",
-                    "tag": node.tag,
-                    "server": node.server,
-                    "server_port": node.port
-                }));
-            }
+        outbounds.push(node_to_outbound(node, &node.tag, None)?);
+    }
 
-            "vless" => {
-                let mut outbound = json!({
-                    "type": "vless",
-                    "tag": node.tag,
-                    "server": node.server,
-                    "server_port": node.port,
-                    "uuid": node.uuid.as_deref().unwrap_or("")
-                });
+    for chain in &config.chains {
+        if chain.outbounds.len() < 2 {
+            anyhow::bail!("Chain {} must contain at least 2 outbounds", chain.tag);
+        }
 
-                if let Some(flow) = &node.flow {
-                    outbound["flow"] = json!(flow);
-                }
+        let mut previous = chain.outbounds[0].clone();
 
-                match node.security.as_deref() {
-                    Some("tls") => {
-                        outbound["tls"] = json!({
-                            "enabled": true,
-                            "server_name": node.server_name.as_deref().unwrap_or(&node.server),
-                            "utls": {
-                                "enabled": true,
-                                "fingerprint": "chrome"
-                            }
-                        });
-                    }
+        for (idx, tag) in chain.outbounds.iter().enumerate().skip(1) {
+            let node = node_map.get(tag).ok_or_else(|| {
+                anyhow::anyhow!("Chain {} references unsupported/unknown outbound: {}", chain.tag, tag)
+            })?;
 
-                    Some("reality") => {
-                        outbound["tls"] = json!({
-                            "enabled": true,
-                            "server_name": node.server_name.as_deref().unwrap_or(&node.server),
-                            "utls": {
-                                "enabled": true,
-                                "fingerprint": "chrome"
-                            },
-                            "reality": {
-                                "enabled": true,
-                                "public_key": node.reality_public_key.as_deref().unwrap_or(""),
-                                "short_id": node.reality_short_id.as_deref().unwrap_or("")
-                            }
-                        });
-                    }
+            let generated_tag = if idx + 1 == chain.outbounds.len() {
+                chain.tag.clone()
+            } else {
+                format!("{}__hop{}", chain.tag, idx + 1)
+            };
 
-                    _ => {}
-                }
-
-                outbounds.push(outbound);
-            }
-
-            other => {
-                anyhow::bail!("Unsupported node type: {}", other);
-            }
+            outbounds.push(node_to_outbound(node, &generated_tag, Some(&previous))?);
+            previous = generated_tag;
         }
     }
 
     let mut rules = Vec::new();
+
+    for profile in &config.local_profiles {
+        rules.push(json!({
+            "inbound": [profile.tag],
+            "outbound": profile.outbound
+        }));
+    }
 
     for rule in &config.rules {
         match rule.rule_type.as_str() {
@@ -131,13 +123,75 @@ pub fn generate_singbox_config(config: &SmartRouteConfig) -> Result<Value> {
         "log": {
             "level": "info"
         },
-        "inbounds": [
-            inbound
-        ],
+        "inbounds": inbounds,
         "outbounds": outbounds,
         "route": {
             "rules": rules,
             "final": config.general.final_outbound
         }
     }))
+}
+
+fn node_to_outbound(node: &Node, tag: &str, dialer_proxy: Option<&str>) -> Result<Value> {
+    let mut outbound = match node.node_type.as_str() {
+        "socks" => json!({
+            "type": "socks",
+            "tag": tag,
+            "server": node.server,
+            "server_port": node.port
+        }),
+        "vless" => {
+            let mut outbound = json!({
+                "type": "vless",
+                "tag": tag,
+                "server": node.server,
+                "server_port": node.port,
+                "uuid": node.uuid.as_deref().unwrap_or("")
+            });
+
+            if let Some(flow) = &node.flow {
+                outbound["flow"] = json!(flow);
+            }
+
+            match node.security.as_deref() {
+                Some("tls") => {
+                    outbound["tls"] = json!({
+                        "enabled": true,
+                        "server_name": node.server_name.as_deref().unwrap_or(&node.server),
+                        "utls": {
+                            "enabled": true,
+                            "fingerprint": "chrome"
+                        }
+                    });
+                }
+
+                Some("reality") => {
+                    outbound["tls"] = json!({
+                        "enabled": true,
+                        "server_name": node.server_name.as_deref().unwrap_or(&node.server),
+                        "utls": {
+                            "enabled": true,
+                            "fingerprint": "chrome"
+                        },
+                        "reality": {
+                            "enabled": true,
+                            "public_key": node.reality_public_key.as_deref().unwrap_or(""),
+                            "short_id": node.reality_short_id.as_deref().unwrap_or("")
+                        }
+                    });
+                }
+
+                _ => {}
+            }
+
+            outbound
+        }
+        other => anyhow::bail!("Unsupported node type: {}", other),
+    };
+
+    if let Some(proxy) = dialer_proxy {
+        outbound["dialer_proxy"] = json!(proxy);
+    }
+
+    Ok(outbound)
 }

@@ -1,4 +1,4 @@
-use crate::config::{Node, Rule, SmartRouteConfig};
+use crate::config::{Chain, LocalProfile, Node, Rule, SmartRouteConfig};
 use anyhow::{Context, Result};
 use std::{fs, path::Path};
 
@@ -85,6 +85,14 @@ pub fn write_config_toml(path: &Path, config: &SmartRouteConfig) -> Result<()> {
         write_node_toml_from_node(&mut out, node);
     }
 
+    for chain in &config.chains {
+        write_chain_toml(&mut out, chain);
+    }
+
+    for profile in &config.local_profiles {
+        write_local_profile_toml(&mut out, profile);
+    }
+
     for rule in &config.rules {
         write_rule_toml(&mut out, rule);
     }
@@ -140,6 +148,41 @@ port = {}
     }
 
     out.push('\n');
+}
+
+fn write_chain_toml(out: &mut String, chain: &Chain) {
+    let outbounds = chain
+        .outbounds
+        .iter()
+        .map(|item| format!("\"{}\"", escape_toml_string(item)))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    out.push_str(&format!(
+        r#"[[chains]]
+tag = "{}"
+outbounds = [{}]
+
+"#,
+        escape_toml_string(&chain.tag),
+        outbounds
+    ));
+}
+
+fn write_local_profile_toml(out: &mut String, profile: &LocalProfile) {
+    out.push_str(&format!(
+        r#"[[local_profiles]]
+tag = "{}"
+listen = "{}"
+listen_port = {}
+outbound = "{}"
+
+"#,
+        escape_toml_string(&profile.tag),
+        escape_toml_string(&profile.listen),
+        profile.listen_port,
+        escape_toml_string(&profile.outbound)
+    ));
 }
 
 fn write_rule_toml(out: &mut String, rule: &Rule) {
