@@ -47,6 +47,8 @@ auto_refresh = 3600
         write_node_toml(&mut toml, &node);
     }
 
+    crate::backup::create_backup_if_exists(output)?;
+
     fs::write(output, toml).context("Failed to write output file")?;
 
     let resolved = resolve_domains_to_ip(output)?;

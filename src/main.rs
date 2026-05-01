@@ -1,4 +1,5 @@
 mod autostart;
+mod backup;
 mod cli;
 mod config;
 mod config_editor;

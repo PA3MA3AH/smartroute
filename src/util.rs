@@ -97,6 +97,8 @@ pub fn write_config_toml(path: &Path, config: &SmartRouteConfig) -> Result<()> {
         write_rule_toml(&mut out, rule);
     }
 
+    crate::backup::create_backup_if_exists(path)?;
+
     fs::write(path, out).with_context(|| format!("Failed to write {}", path.display()))?;
 
     Ok(())

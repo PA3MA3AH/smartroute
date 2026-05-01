@@ -1,5 +1,6 @@
 use crate::{
     autostart::{disable_autostart, enable_autostart, status_autostart},
+    backup::{backup_config, list_backups, restore_backup},
     config::{Chain, LocalProfile, Rule, load_config, validate_config},
     daemon::run_daemon,
     diagnosis::{diagnose_ai_access, diagnose_site, watch_sites},
@@ -43,6 +44,24 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    Backup {
+        input: PathBuf,
+    },
+
+    Backups {
+        input: Option<PathBuf>,
+    },
+
+    Restore {
+        input: PathBuf,
+
+        #[arg(long)]
+        file: Option<PathBuf>,
+
+        #[arg(long, default_value_t = false)]
+        latest: bool,
+    },
+
     Doctor {
         input: PathBuf,
 
@@ -356,6 +375,22 @@ pub fn run() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Backup { input } => {
+            backup_config(&input)?;
+        }
+
+        Commands::Backups { input } => {
+            list_backups(input.as_deref())?;
+        }
+
+        Commands::Restore {
+            input,
+            file,
+            latest: _,
+        } => {
+            restore_backup(&input, file.as_deref())?;
+        }
+
         Commands::Doctor { input, strict } => {
             doctor_config(&input, strict)?;
         }
@@ -621,6 +656,9 @@ enum UiAction {
     Stop,
     DiagnoseCustom,
     DiagnoseAiAccess,
+    BackupCreate,
+    BackupList,
+    BackupRestoreLatest,
     Doctor,
     ListRules,
     ListMasks,
@@ -849,6 +887,27 @@ fn ui_items() -> Vec<UiItem> {
             ru: "Проверка здоровья SmartRoute",
             en_hint: "Checks config, sing-box, SOCKS port, kill-switch and proxy-only policy.",
             ru_hint: "Проверяет конфиг, sing-box, SOCKS-порт, kill-switch и proxy-only политику.",
+        },
+        UiItem {
+            action: UiAction::BackupCreate,
+            en: "Create config backup",
+            ru: "Создать backup конфига",
+            en_hint: "Creates a snapshot of the current config.",
+            ru_hint: "Создаёт снимок текущего конфига.",
+        },
+        UiItem {
+            action: UiAction::BackupList,
+            en: "Show config backups",
+            ru: "Показать backups конфига",
+            en_hint: "Shows saved config snapshots.",
+            ru_hint: "Показывает сохранённые снимки конфига.",
+        },
+        UiItem {
+            action: UiAction::BackupRestoreLatest,
+            en: "Restore latest backup",
+            ru: "Восстановить последний backup",
+            en_hint: "Restores the latest backup for the current config.",
+            ru_hint: "Восстанавливает последний backup текущего конфига.",
         },
         UiItem {
             action: UiAction::Doctor,
@@ -1223,6 +1282,27 @@ fn run_ui_action(action: UiAction, input: &mut PathBuf, lang: UiLang) -> Result<
             health_check(input, "google.com", false)?;
             pause(lang)?;
             Ok(None)
+        }
+
+        UiAction::BackupCreate => {
+            backup_config(input)?;
+            pause(lang)?;
+            Ok(None)
+        }
+
+        UiAction::BackupList => {
+            list_backups(Some(input.as_path()))?;
+            pause(lang)?;
+            Ok(None)
+        }
+
+        UiAction::BackupRestoreLatest => {
+            restore_backup(input, None)?;
+            pause(lang)?;
+            Ok(Some(match lang {
+                UiLang::En => "Latest backup restored.".to_string(),
+                UiLang::Ru => "Последний backup восстановлен.".to_string(),
+            }))
         }
 
         UiAction::Doctor => {
