@@ -11,6 +11,7 @@ mod health;
 mod killswitch;
 mod leaktest;
 mod mask;
+mod merge;
 mod picker;
 mod resolve;
 mod runtime;

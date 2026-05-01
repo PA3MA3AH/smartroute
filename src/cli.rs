@@ -10,6 +10,7 @@ use crate::{
     killswitch::{disable_killswitch, enable_killswitch, status_killswitch},
     leaktest::run_leak_test,
     mask::{list_masks, set_mask},
+    merge::merge_nodes,
     picker::pick_node,
     resolve::resolve_domains_to_ip,
     runtime::{start_smartroute, status_smartroute, stop_smartroute},
@@ -44,6 +45,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    MergeNodes {
+        base: PathBuf,
+        nodes: PathBuf,
+
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+
     Backup {
         input: PathBuf,
     },
@@ -375,6 +384,14 @@ pub fn run() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::MergeNodes {
+            base,
+            nodes,
+            output,
+        } => {
+            merge_nodes(&base, &nodes, output.as_deref())?;
+        }
+
         Commands::Backup { input } => {
             backup_config(&input)?;
         }
