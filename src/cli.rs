@@ -489,6 +489,9 @@ enum UiAction {
     DiagnoseCustom,
     DiagnoseAiAccess,
     ListRules,
+    ListMasks,
+    SetMaskFingerprint,
+    SetMaskServerName,
     ImportSubscription,
     ChangeConfig,
     ToggleLanguage,
@@ -678,6 +681,27 @@ fn ui_items() -> Vec<UiItem> {
             ru: "Показать правила роутинга",
             en_hint: "Shows current domain routing rules.",
             ru_hint: "Показывает текущие правила роутинга доменов.",
+        },
+        UiItem {
+            action: UiAction::ListMasks,
+            en: "Show Reality/uTLS masks",
+            ru: "Показать маскировку Reality/uTLS",
+            en_hint: "Shows server_name and uTLS fingerprint for VLESS Reality nodes.",
+            ru_hint: "Показывает server_name и uTLS fingerprint у VLESS Reality-нод.",
+        },
+        UiItem {
+            action: UiAction::SetMaskFingerprint,
+            en: "Change Reality/uTLS fingerprint",
+            ru: "Изменить fingerprint Reality-ноды",
+            en_hint: "Changes uTLS fingerprint: chrome, firefox, safari, edge, android, etc.",
+            ru_hint: "Меняет uTLS fingerprint: chrome, firefox, safari, edge, android и т.д.",
+        },
+        UiItem {
+            action: UiAction::SetMaskServerName,
+            en: "Change Reality server_name",
+            ru: "Изменить server_name Reality-ноды",
+            en_hint: "Changes TLS server_name/SNI. Warning: may break the node.",
+            ru_hint: "Меняет TLS server_name/SNI. Важно: может сломать ноду.",
         },
         UiItem {
             action: UiAction::DiagnoseAiAccess,
@@ -987,6 +1011,22 @@ fn run_ui_action(action: UiAction, input: &mut PathBuf, lang: UiLang) -> Result<
             pause(lang)?;
             Ok(None)
         }
+
+        UiAction::ListMasks => {
+            crate::mask::list_masks(input)?;
+            Ok(None)
+        }
+
+        UiAction::SetMaskFingerprint => {
+            change_mask_fingerprint(input, lang)?;
+            Ok(None)
+        }
+
+        UiAction::SetMaskServerName => {
+            change_mask_server_name(input, lang)?;
+            Ok(None)
+        }
+
         UiAction::ImportSubscription => {
             let url = prompt_line(match lang {
                 UiLang::En => "Subscription URL: ",
@@ -1107,6 +1147,114 @@ fn pause(lang: UiLang) -> Result<()> {
         }
     );
     let _ = read_line_trimmed()?;
+    Ok(())
+}
+
+fn change_mask_fingerprint(input: &PathBuf, lang: UiLang) -> Result<()> {
+    println!();
+
+    crate::mask::list_masks(input)?;
+
+    println!();
+
+    let tag = prompt_line(match lang {
+        UiLang::En => "Node tag",
+        UiLang::Ru => "Тег ноды",
+    })?;
+
+    if tag.trim().is_empty() {
+        println!(
+            "{}",
+            match lang {
+                UiLang::En => "Cancelled: empty node tag",
+                UiLang::Ru => "Отменено: пустой тег ноды",
+            }
+        );
+        return Ok(());
+    }
+
+    let fingerprint = prompt_line(match lang {
+        UiLang::En => "Fingerprint (chrome/firefox/edge/safari/ios/android/random/randomized)",
+        UiLang::Ru => "Fingerprint (chrome/firefox/edge/safari/ios/android/random/randomized)",
+    })?;
+
+    if fingerprint.trim().is_empty() {
+        println!(
+            "{}",
+            match lang {
+                UiLang::En => "Cancelled: empty fingerprint",
+                UiLang::Ru => "Отменено: пустой fingerprint",
+            }
+        );
+        return Ok(());
+    }
+
+    crate::mask::set_mask(
+        input,
+        tag.trim(),
+        None,
+        Some(fingerprint.trim()),
+        Some(input.as_path()),
+    )?;
+
+    Ok(())
+}
+
+fn change_mask_server_name(input: &PathBuf, lang: UiLang) -> Result<()> {
+    println!();
+
+    crate::mask::list_masks(input)?;
+
+    println!();
+
+    let tag = prompt_line(match lang {
+        UiLang::En => "Node tag",
+        UiLang::Ru => "Тег ноды",
+    })?;
+
+    if tag.trim().is_empty() {
+        println!(
+            "{}",
+            match lang {
+                UiLang::En => "Cancelled: empty node tag",
+                UiLang::Ru => "Отменено: пустой тег ноды",
+            }
+        );
+        return Ok(());
+    }
+
+    println!(
+        "{}",
+        match lang {
+            UiLang::En => "Warning: changing server_name may break Reality node.",
+            UiLang::Ru => "Внимание: изменение server_name может сломать Reality-ноду.",
+        }
+    );
+
+    let server_name = prompt_line(match lang {
+        UiLang::En => "New server_name/SNI",
+        UiLang::Ru => "Новый server_name/SNI",
+    })?;
+
+    if server_name.trim().is_empty() {
+        println!(
+            "{}",
+            match lang {
+                UiLang::En => "Cancelled: empty server_name",
+                UiLang::Ru => "Отменено: пустой server_name",
+            }
+        );
+        return Ok(());
+    }
+
+    crate::mask::set_mask(
+        input,
+        tag.trim(),
+        Some(server_name.trim()),
+        None,
+        Some(input.as_path()),
+    )?;
+
     Ok(())
 }
 
