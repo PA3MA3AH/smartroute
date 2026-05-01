@@ -1,6 +1,7 @@
 use crate::{
     config::load_config,
     diagnosis::diagnose_site,
+    health::daemon_self_heal,
     runtime::{start_smartroute, stop_smartroute},
     subscription::refresh_config_nodes_from_subscription,
 };
@@ -17,6 +18,7 @@ pub fn run_daemon(
     interval: u64,
     domains: Vec<String>,
     diagnose_interval: u64,
+    heal_interval: u64,
     timeout: u64,
     jobs: usize,
     samples: usize,
@@ -26,6 +28,12 @@ pub fn run_daemon(
     println!("SmartRoute daemon started");
     println!("Config: {}", input.display());
     println!("Restart check interval: {}s", interval);
+
+    if heal_interval == 0 {
+        println!("Self-heal: disabled");
+    } else {
+        println!("Self-heal interval: {}s", heal_interval);
+    }
 
     if domains.is_empty() {
         println!("Auto-diagnose: disabled");
@@ -42,6 +50,10 @@ pub fn run_daemon(
     let mut last_modified = get_modified_time(input)?;
     let mut refresh_interval = read_auto_refresh_interval(input)?;
     let mut last_refresh = Instant::now();
+
+    let mut last_heal = Instant::now()
+        .checked_sub(Duration::from_secs(heal_interval))
+        .unwrap_or_else(Instant::now);
 
     if refresh_interval == 0 {
         println!("Subscription auto-refresh: disabled");
@@ -78,6 +90,14 @@ pub fn run_daemon(
             if let Err(err) = restart_smartroute(input) {
                 eprintln!("Restart failed: {}", err);
             }
+        }
+
+        if heal_interval > 0 && last_heal.elapsed() >= Duration::from_secs(heal_interval) {
+            if let Err(err) = daemon_self_heal(input) {
+                eprintln!("Self-heal failed: {}", err);
+            }
+
+            last_heal = Instant::now();
         }
 
         if refresh_interval > 0 && last_refresh.elapsed() >= Duration::from_secs(refresh_interval) {

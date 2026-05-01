@@ -3,6 +3,7 @@ use crate::{
     config::{Chain, LocalProfile, Rule, load_config, validate_config},
     daemon::run_daemon,
     diagnosis::{diagnose_ai_access, diagnose_site, watch_sites},
+    health::{health_check, repair_smartroute},
     killswitch::{disable_killswitch, enable_killswitch, status_killswitch},
     leaktest::run_leak_test,
     mask::{list_masks, set_mask},
@@ -13,6 +14,7 @@ use crate::{
     subscription::import_url,
     tester::{auto_select_fastest, test_nodes},
     util::write_config_toml,
+    whitelist::{list_whitelist_masks, run_whitelist_test},
 };
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -39,6 +41,31 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    Health {
+        input: PathBuf,
+
+        #[arg(long, default_value = "google.com")]
+        domain: String,
+
+        #[arg(long, default_value_t = false)]
+        full: bool,
+    },
+
+    Repair {
+        input: PathBuf,
+
+        #[arg(long, default_value = "google.com")]
+        domain: String,
+
+        #[arg(long, default_value_t = false)]
+        full: bool,
+    },
+
+    Whitelist {
+        #[command(subcommand)]
+        command: WhitelistCommand,
+    },
+
     LeakTest {
         input: PathBuf,
 
@@ -79,6 +106,9 @@ enum Commands {
 
         #[arg(long, default_value_t = 300)]
         diagnose_interval: u64,
+
+        #[arg(long, default_value_t = 30)]
+        heal_interval: u64,
 
         #[arg(long, default_value_t = 8)]
         timeout: u64,
@@ -219,6 +249,23 @@ enum Commands {
 }
 
 #[derive(Subcommand)]
+enum WhitelistCommand {
+    List {
+        input: PathBuf,
+    },
+
+    Test {
+        input: PathBuf,
+
+        #[arg(long, default_value = "youtube.com")]
+        domain: String,
+
+        #[arg(short, long)]
+        interface: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
 enum MaskCommand {
     List {
         input: PathBuf,
@@ -287,6 +334,36 @@ pub fn run() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Whitelist { command } => match command {
+            WhitelistCommand::List { input } => {
+                list_whitelist_masks(&input)?;
+            }
+
+            WhitelistCommand::Test {
+                input,
+                domain,
+                interface,
+            } => {
+                run_whitelist_test(&input, &domain, interface.as_deref())?;
+            }
+        },
+
+        Commands::Health {
+            input,
+            domain,
+            full,
+        } => {
+            health_check(&input, &domain, full)?;
+        }
+
+        Commands::Repair {
+            input,
+            domain,
+            full,
+        } => {
+            repair_smartroute(&input, &domain, full)?;
+        }
+
         Commands::LeakTest {
             input,
             domain,
@@ -351,6 +428,7 @@ pub fn run() -> Result<()> {
             interval,
             domain,
             diagnose_interval,
+            heal_interval,
             timeout,
             jobs,
             samples,
@@ -362,6 +440,7 @@ pub fn run() -> Result<()> {
                 interval,
                 domain,
                 diagnose_interval,
+                heal_interval,
                 timeout,
                 jobs,
                 samples,
@@ -510,6 +589,10 @@ enum UiAction {
     ListRules,
     ListMasks,
     LeakTest,
+    HealthCheck,
+    Repair,
+    WhitelistList,
+    WhitelistTest,
     SetMaskFingerprint,
     SetMaskServerName,
     ImportSubscription,
@@ -715,6 +798,34 @@ fn ui_items() -> Vec<UiItem> {
             ru: "Проверка утечек / leak-test",
             en_hint: "Checks kill-switch, direct blocking, SOCKS route, SNI and proxy destinations.",
             ru_hint: "Проверяет kill-switch, блокировку direct, SOCKS-маршрут, SNI и IP proxy-нод.",
+        },
+        UiItem {
+            action: UiAction::HealthCheck,
+            en: "Health check",
+            ru: "Проверка здоровья SmartRoute",
+            en_hint: "Checks config, sing-box, SOCKS port, kill-switch and proxy-only policy.",
+            ru_hint: "Проверяет конфиг, sing-box, SOCKS-порт, kill-switch и proxy-only политику.",
+        },
+        UiItem {
+            action: UiAction::Repair,
+            en: "Repair automatically",
+            ru: "Починить автоматически",
+            en_hint: "Restarts SmartRoute and enables kill-switch if something is broken.",
+            ru_hint: "Перезапускает SmartRoute и включает kill-switch, если что-то сломалось.",
+        },
+        UiItem {
+            action: UiAction::WhitelistList,
+            en: "Whitelist: show compatible masks",
+            ru: "Whitelist: показать подходящие маски",
+            en_hint: "Shows Reality server_name values that look like allowed RU/major services.",
+            ru_hint: "Показывает Reality server_name, похожие на разрешённые RU/крупные сервисы.",
+        },
+        UiItem {
+            action: UiAction::WhitelistTest,
+            en: "Whitelist: test current route",
+            ru: "Whitelist: проверить текущий маршрут",
+            en_hint: "Checks that captured SNI belongs to whitelist groups like VK/Yandex/Ozon.",
+            ru_hint: "Проверяет, что SNI относится к whitelist-группам: VK/Yandex/Ozon и т.д.",
         },
         UiItem {
             action: UiAction::SetMaskFingerprint,
@@ -964,7 +1075,7 @@ fn run_ui_action(action: UiAction, input: &mut PathBuf, lang: UiLang) -> Result<
                 "discord.com".to_string(),
                 "youtube.com".to_string(),
             ];
-            run_daemon(input, 2, domains, 300, 8, 12, 3, 25, false)?;
+            run_daemon(input, 2, domains, 300, 30, 8, 12, 3, 25, false)?;
             Ok(None)
         }
         UiAction::StartDaemonFull => {
@@ -980,7 +1091,7 @@ fn run_ui_action(action: UiAction, input: &mut PathBuf, lang: UiLang) -> Result<
                 "discord.com".to_string(),
                 "youtube.com".to_string(),
             ];
-            run_daemon(input, 2, domains, 300, 8, 12, 3, 25, true)?;
+            run_daemon(input, 2, domains, 300, 30, 8, 12, 3, 25, true)?;
             Ok(None)
         }
         UiAction::StartOnce => {
@@ -1046,6 +1157,26 @@ fn run_ui_action(action: UiAction, input: &mut PathBuf, lang: UiLang) -> Result<
 
         UiAction::LeakTest => {
             run_leak_test(input, "google.com", None)?;
+            Ok(None)
+        }
+
+        UiAction::HealthCheck => {
+            health_check(input, "google.com", false)?;
+            Ok(None)
+        }
+
+        UiAction::Repair => {
+            repair_smartroute(input, "google.com", false)?;
+            Ok(None)
+        }
+
+        UiAction::WhitelistList => {
+            list_whitelist_masks(input)?;
+            Ok(None)
+        }
+
+        UiAction::WhitelistTest => {
+            run_whitelist_test(input, "youtube.com", None)?;
             Ok(None)
         }
 

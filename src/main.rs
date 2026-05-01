@@ -4,6 +4,7 @@ mod config;
 mod config_editor;
 mod daemon;
 mod diagnosis;
+mod health;
 mod killswitch;
 mod leaktest;
 mod mask;
@@ -14,6 +15,7 @@ mod singbox;
 mod subscription;
 mod tester;
 mod util;
+mod whitelist;
 
 fn main() -> anyhow::Result<()> {
     cli::run()

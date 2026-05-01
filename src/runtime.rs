@@ -8,6 +8,8 @@ use std::{
     fs,
     path::Path,
     process::{Command, Stdio},
+    thread,
+    time::Duration,
 };
 
 pub const RUNTIME_DIR: &str = "/run/smartroute";
@@ -41,7 +43,7 @@ pub fn start_smartroute(input: &Path) -> Result<()> {
 
     let log_file = fs::File::create(LOG_FILE).context("Failed to create sing-box log file")?;
 
-    let child = Command::new("sing-box")
+    let mut child = Command::new("sing-box")
         .arg("run")
         .arg("-c")
         .arg(SINGBOX_CONFIG_FILE)
@@ -49,6 +51,22 @@ pub fn start_smartroute(input: &Path) -> Result<()> {
         .stderr(Stdio::from(log_file))
         .spawn()
         .context("Failed to start sing-box. Is sing-box installed?")?;
+
+    thread::sleep(Duration::from_millis(700));
+
+    if let Some(status) = child
+        .try_wait()
+        .context("Failed to check just-started sing-box process")?
+    {
+        let log = fs::read_to_string(LOG_FILE).unwrap_or_default();
+        let tail = last_lines(&log, 60);
+
+        anyhow::bail!(
+            "sing-box exited immediately with status: {}\nLast log lines:\n{}",
+            status,
+            tail
+        );
+    }
 
     fs::write(PID_FILE, child.id().to_string()).context("Failed to write PID file")?;
 
@@ -152,4 +170,11 @@ fn is_running() -> Result<bool> {
     }
 
     Ok(status.success())
+}
+
+fn last_lines(text: &str, max_lines: usize) -> String {
+    let lines = text.lines().collect::<Vec<_>>();
+    let start = lines.len().saturating_sub(max_lines);
+
+    lines[start..].join("\n")
 }
