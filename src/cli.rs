@@ -3,6 +3,7 @@ use crate::{
     config::{Chain, LocalProfile, Rule, load_config, validate_config},
     daemon::run_daemon,
     diagnosis::{diagnose_ai_access, diagnose_site, watch_sites},
+    doctor::doctor_config,
     health::{health_check, repair_smartroute},
     killswitch::{disable_killswitch, enable_killswitch, status_killswitch},
     leaktest::run_leak_test,
@@ -41,6 +42,13 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    Doctor {
+        input: PathBuf,
+
+        #[arg(long, default_value_t = false)]
+        strict: bool,
+    },
+
     Health {
         input: PathBuf,
 
@@ -334,6 +342,10 @@ pub fn run() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Doctor { input, strict } => {
+            doctor_config(&input, strict)?;
+        }
+
         Commands::Whitelist { command } => match command {
             WhitelistCommand::List { input } => {
                 list_whitelist_masks(&input)?;
@@ -586,6 +598,7 @@ enum UiAction {
     Stop,
     DiagnoseCustom,
     DiagnoseAiAccess,
+    Doctor,
     ListRules,
     ListMasks,
     LeakTest,
@@ -805,6 +818,13 @@ fn ui_items() -> Vec<UiItem> {
             ru: "Проверка здоровья SmartRoute",
             en_hint: "Checks config, sing-box, SOCKS port, kill-switch and proxy-only policy.",
             ru_hint: "Проверяет конфиг, sing-box, SOCKS-порт, kill-switch и proxy-only политику.",
+        },
+        UiItem {
+            action: UiAction::Doctor,
+            en: "Config doctor",
+            ru: "Доктор конфига",
+            en_hint: "Checks duplicate rules, direct leaks, unknown outbounds, chains and generated sing-box config.",
+            ru_hint: "Проверяет дубли правил, direct-утечки, неизвестные outbounds, chains и sing-box конфиг.",
         },
         UiItem {
             action: UiAction::Repair,
@@ -1162,6 +1182,11 @@ fn run_ui_action(action: UiAction, input: &mut PathBuf, lang: UiLang) -> Result<
 
         UiAction::HealthCheck => {
             health_check(input, "google.com", false)?;
+            Ok(None)
+        }
+
+        UiAction::Doctor => {
+            doctor_config(input, false)?;
             Ok(None)
         }
 

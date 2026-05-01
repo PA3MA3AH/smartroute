@@ -4,6 +4,7 @@ mod config;
 mod config_editor;
 mod daemon;
 mod diagnosis;
+mod doctor;
 mod health;
 mod killswitch;
 mod leaktest;
