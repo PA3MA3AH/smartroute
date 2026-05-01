@@ -1203,11 +1203,13 @@ fn run_ui_action(action: UiAction, input: &mut PathBuf, lang: UiLang) -> Result<
 
         UiAction::ListMasks => {
             crate::mask::list_masks(input)?;
+            pause(lang)?;
             Ok(None)
         }
 
         UiAction::LeakTest => {
             run_leak_test(input, "google.com", None)?;
+            pause(lang)?;
             Ok(None)
         }
 
@@ -1219,36 +1221,43 @@ fn run_ui_action(action: UiAction, input: &mut PathBuf, lang: UiLang) -> Result<
 
         UiAction::HealthCheck => {
             health_check(input, "google.com", false)?;
+            pause(lang)?;
             Ok(None)
         }
 
         UiAction::Doctor => {
             doctor_config(input, false)?;
+            pause(lang)?;
             Ok(None)
         }
 
         UiAction::Repair => {
             repair_smartroute(input, "google.com", false)?;
+            pause(lang)?;
             Ok(None)
         }
 
         UiAction::WhitelistList => {
             list_whitelist_masks(input)?;
+            pause(lang)?;
             Ok(None)
         }
 
         UiAction::WhitelistTest => {
             run_whitelist_test(input, "youtube.com", None)?;
+            pause(lang)?;
             Ok(None)
         }
 
         UiAction::SetMaskFingerprint => {
             change_mask_fingerprint(input, lang)?;
+            pause(lang)?;
             Ok(None)
         }
 
         UiAction::SetMaskServerName => {
             change_mask_server_name(input, lang)?;
+            pause(lang)?;
             Ok(None)
         }
 
@@ -1292,6 +1301,7 @@ fn run_ui_action(action: UiAction, input: &mut PathBuf, lang: UiLang) -> Result<
             if !new_path.is_empty() {
                 *input = PathBuf::from(new_path);
             }
+            pause(lang)?;
             Ok(Some(format!(
                 "{} {}",
                 match lang {
@@ -1333,10 +1343,12 @@ fn run_ui_action(action: UiAction, input: &mut PathBuf, lang: UiLang) -> Result<
 
         UiAction::EditSitesConfig => {
             crate::config_editor::edit_sites_config(input);
+            pause(lang)?;
             Ok(None)
         }
         UiAction::EditAppsConfig => {
             crate::config_editor::edit_apps_config(input);
+            pause(lang)?;
             Ok(None)
         }
 
@@ -1346,7 +1358,14 @@ fn run_ui_action(action: UiAction, input: &mut PathBuf, lang: UiLang) -> Result<
 
 fn clear_for_command() -> Result<()> {
     let mut out = io::stdout();
-    execute!(out, terminal::Clear(ClearType::All), cursor::MoveTo(0, 0))?;
+
+    execute!(
+        out,
+        terminal::Clear(ClearType::Purge),
+        terminal::Clear(ClearType::All),
+        cursor::MoveTo(0, 0)
+    )?;
+
     Ok(())
 }
 
@@ -1371,7 +1390,11 @@ fn pause(lang: UiLang) -> Result<()> {
             UiLang::Ru => "Нажми Enter, чтобы вернуться в меню...",
         }
     );
+
     let _ = read_line_trimmed()?;
+
+    clear_for_command()?;
+
     Ok(())
 }
 
