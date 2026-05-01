@@ -35,15 +35,6 @@ pub struct NodeScore {
     pub loss_percent: u128,
 }
 
-pub fn find_best_node(
-    config: &SmartRouteConfig,
-    timeout: u64,
-    jobs: usize,
-    samples: usize,
-) -> Result<Option<NodeScore>> {
-    find_best_node_for_url(config, "https://ifconfig.me", timeout, jobs, samples)
-}
-
 pub fn find_best_node_for_url(
     config: &SmartRouteConfig,
     url: &str,
@@ -85,15 +76,6 @@ pub fn find_best_node_for_url(
     }
 
     Ok(best)
-}
-
-pub fn test_single_node(
-    config: &SmartRouteConfig,
-    node_tag: &str,
-    timeout: u64,
-    samples: usize,
-) -> Result<Option<NodeScore>> {
-    test_single_node_for_url(config, node_tag, "https://ifconfig.me", timeout, samples)
 }
 
 pub fn test_single_node_for_url(
