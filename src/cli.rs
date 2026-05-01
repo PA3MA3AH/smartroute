@@ -3,6 +3,7 @@ use crate::{
     config::{Chain, LocalProfile, Rule, load_config, validate_config},
     daemon::run_daemon,
     diagnosis::{diagnose_ai_access, diagnose_site, watch_sites},
+    dnstest::run_dns_test,
     doctor::doctor_config,
     health::{health_check, repair_smartroute},
     killswitch::{disable_killswitch, enable_killswitch, status_killswitch},
@@ -82,6 +83,19 @@ enum Commands {
 
         #[arg(short, long)]
         interface: Option<String>,
+    },
+
+    DnsTest {
+        input: PathBuf,
+
+        #[arg(long, default_value = "youtube.com")]
+        domain: String,
+
+        #[arg(short, long)]
+        interface: Option<String>,
+
+        #[arg(long, default_value_t = false)]
+        strict: bool,
     },
 
     Mask {
@@ -384,6 +398,15 @@ pub fn run() -> Result<()> {
             run_leak_test(&input, &domain, interface.as_deref())?;
         }
 
+        Commands::DnsTest {
+            input,
+            domain,
+            interface,
+            strict,
+        } => {
+            run_dns_test(&input, &domain, interface.as_deref(), strict)?;
+        }
+
         Commands::Mask { command } => match command {
             MaskCommand::List { input } => {
                 list_masks(&input)?;
@@ -602,6 +625,7 @@ enum UiAction {
     ListRules,
     ListMasks,
     LeakTest,
+    DnsTest,
     HealthCheck,
     Repair,
     WhitelistList,
@@ -811,6 +835,13 @@ fn ui_items() -> Vec<UiItem> {
             ru: "Проверка утечек / leak-test",
             en_hint: "Checks kill-switch, direct blocking, SOCKS route, SNI and proxy destinations.",
             ru_hint: "Проверяет kill-switch, блокировку direct, SOCKS-маршрут, SNI и IP proxy-нод.",
+        },
+        UiItem {
+            action: UiAction::DnsTest,
+            en: "DNS leak-test",
+            ru: "DNS leak-test",
+            en_hint: "Captures DNS/DoH/DoT traffic and checks that target domains do not leak.",
+            ru_hint: "Ловит DNS/DoH/DoT трафик и проверяет, что целевые домены не утекают.",
         },
         UiItem {
             action: UiAction::HealthCheck,
@@ -1177,6 +1208,12 @@ fn run_ui_action(action: UiAction, input: &mut PathBuf, lang: UiLang) -> Result<
 
         UiAction::LeakTest => {
             run_leak_test(input, "google.com", None)?;
+            Ok(None)
+        }
+
+        UiAction::DnsTest => {
+            run_dns_test(input, "youtube.com", None, false)?;
+            pause(lang)?;
             Ok(None)
         }
 
