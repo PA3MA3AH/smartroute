@@ -18,6 +18,7 @@ struct ParsedNode {
     flow: Option<String>,
     security: Option<String>,
     server_name: Option<String>,
+    utls_fingerprint: Option<String>,
     reality_public_key: Option<String>,
     reality_short_id: Option<String>,
 }
@@ -45,6 +46,8 @@ auto_refresh = 3600
     for node in nodes {
         write_node_toml(&mut toml, &node);
     }
+
+    crate::backup::create_backup_if_exists(output)?;
 
     fs::write(output, toml).context("Failed to write output file")?;
 
@@ -135,6 +138,7 @@ fn parsed_node_to_node(node: ParsedNode) -> Node {
         flow: node.flow,
         security: node.security,
         server_name: node.server_name,
+        utls_fingerprint: node.utls_fingerprint,
         reality_public_key: node.reality_public_key,
         reality_short_id: node.reality_short_id,
     }
@@ -191,6 +195,14 @@ port = {}
             escape_toml_string(server_name)
         ));
     }
+
+    if let Some(fingerprint) = &node.utls_fingerprint {
+        toml.push_str(&format!(
+            "utls_fingerprint = \"{}\"\n",
+            escape_toml_string(fingerprint)
+        ));
+    }
+
     if let Some(pk) = &node.reality_public_key {
         toml.push_str(&format!(
             "reality_public_key = \"{}\"\n",
@@ -259,6 +271,7 @@ fn parse_ss(link: &str) -> Option<ParsedNode> {
         flow: None,
         security: None,
         server_name: None,
+        utls_fingerprint: None,
         reality_public_key: None,
         reality_short_id: None,
     })
@@ -278,6 +291,7 @@ fn parse_vless(link: &str) -> Option<ParsedNode> {
     let mut flow = None;
     let mut security = None;
     let mut server_name = None;
+    let mut utls_fingerprint = None;
     let mut reality_public_key = None;
     let mut reality_short_id = None;
 
@@ -286,6 +300,12 @@ fn parse_vless(link: &str) -> Option<ParsedNode> {
             "flow" => flow = Some(value.to_string()),
             "security" => security = Some(value.to_string()),
             "sni" => server_name = Some(value.to_string()),
+
+            // uTLS fingerprint:
+            // vless://...?fp=chrome
+            // vless://...?fingerprint=chrome
+            "fp" | "fingerprint" => utls_fingerprint = Some(value.to_string()),
+
             "pbk" => reality_public_key = Some(value.to_string()),
             "sid" => reality_short_id = Some(value.to_string()),
             _ => {}
@@ -322,6 +342,7 @@ fn parse_vless(link: &str) -> Option<ParsedNode> {
         flow,
         security,
         server_name,
+        utls_fingerprint,
         reality_public_key,
         reality_short_id,
     })

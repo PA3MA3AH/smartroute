@@ -1,9 +1,15 @@
 use crate::{
     autostart::{disable_autostart, enable_autostart, status_autostart},
+    backup::{backup_config, list_backups, restore_backup},
     config::{Chain, LocalProfile, Rule, load_config, validate_config},
     daemon::run_daemon,
     diagnosis::{diagnose_ai_access, diagnose_site, watch_sites},
+    dnstest::run_dns_test,
+    doctor::doctor_config,
+    health::{health_check, repair_smartroute},
     killswitch::{disable_killswitch, enable_killswitch, status_killswitch},
+    leaktest::run_leak_test,
+    mask::{list_masks, set_mask},
     picker::pick_node,
     resolve::resolve_domains_to_ip,
     runtime::{start_smartroute, status_smartroute, stop_smartroute},
@@ -11,6 +17,7 @@ use crate::{
     subscription::import_url,
     tester::{auto_select_fastest, test_nodes},
     util::write_config_toml,
+    whitelist::{list_whitelist_masks, run_whitelist_test},
 };
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -37,6 +44,84 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    Backup {
+        input: PathBuf,
+    },
+
+    Backups {
+        input: Option<PathBuf>,
+    },
+
+    Restore {
+        input: PathBuf,
+
+        #[arg(long)]
+        file: Option<PathBuf>,
+
+        #[arg(long, default_value_t = false)]
+        latest: bool,
+    },
+
+    Doctor {
+        input: PathBuf,
+
+        #[arg(long, default_value_t = false)]
+        strict: bool,
+    },
+
+    Health {
+        input: PathBuf,
+
+        #[arg(long, default_value = "google.com")]
+        domain: String,
+
+        #[arg(long, default_value_t = false)]
+        full: bool,
+    },
+
+    Repair {
+        input: PathBuf,
+
+        #[arg(long, default_value = "google.com")]
+        domain: String,
+
+        #[arg(long, default_value_t = false)]
+        full: bool,
+    },
+
+    Whitelist {
+        #[command(subcommand)]
+        command: WhitelistCommand,
+    },
+
+    LeakTest {
+        input: PathBuf,
+
+        #[arg(long, default_value = "google.com")]
+        domain: String,
+
+        #[arg(short, long)]
+        interface: Option<String>,
+    },
+
+    DnsTest {
+        input: PathBuf,
+
+        #[arg(long, default_value = "youtube.com")]
+        domain: String,
+
+        #[arg(short, long)]
+        interface: Option<String>,
+
+        #[arg(long, default_value_t = false)]
+        strict: bool,
+    },
+
+    Mask {
+        #[command(subcommand)]
+        command: MaskCommand,
+    },
+
     KillSwitch {
         #[command(subcommand)]
         command: KillSwitchCommand,
@@ -62,6 +147,9 @@ enum Commands {
 
         #[arg(long, default_value_t = 300)]
         diagnose_interval: u64,
+
+        #[arg(long, default_value_t = 30)]
+        heal_interval: u64,
 
         #[arg(long, default_value_t = 8)]
         timeout: u64,
@@ -202,6 +290,44 @@ enum Commands {
 }
 
 #[derive(Subcommand)]
+enum WhitelistCommand {
+    List {
+        input: PathBuf,
+    },
+
+    Test {
+        input: PathBuf,
+
+        #[arg(long, default_value = "youtube.com")]
+        domain: String,
+
+        #[arg(short, long)]
+        interface: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum MaskCommand {
+    List {
+        input: PathBuf,
+    },
+
+    Set {
+        input: PathBuf,
+        tag: String,
+
+        #[arg(long)]
+        server_name: Option<String>,
+
+        #[arg(long)]
+        fingerprint: Option<String>,
+
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
 enum KillSwitchCommand {
     Enable {
         input: PathBuf,
@@ -249,6 +375,95 @@ pub fn run() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Backup { input } => {
+            backup_config(&input)?;
+        }
+
+        Commands::Backups { input } => {
+            list_backups(input.as_deref())?;
+        }
+
+        Commands::Restore {
+            input,
+            file,
+            latest: _,
+        } => {
+            restore_backup(&input, file.as_deref())?;
+        }
+
+        Commands::Doctor { input, strict } => {
+            doctor_config(&input, strict)?;
+        }
+
+        Commands::Whitelist { command } => match command {
+            WhitelistCommand::List { input } => {
+                list_whitelist_masks(&input)?;
+            }
+
+            WhitelistCommand::Test {
+                input,
+                domain,
+                interface,
+            } => {
+                run_whitelist_test(&input, &domain, interface.as_deref())?;
+            }
+        },
+
+        Commands::Health {
+            input,
+            domain,
+            full,
+        } => {
+            health_check(&input, &domain, full)?;
+        }
+
+        Commands::Repair {
+            input,
+            domain,
+            full,
+        } => {
+            repair_smartroute(&input, &domain, full)?;
+        }
+
+        Commands::LeakTest {
+            input,
+            domain,
+            interface,
+        } => {
+            run_leak_test(&input, &domain, interface.as_deref())?;
+        }
+
+        Commands::DnsTest {
+            input,
+            domain,
+            interface,
+            strict,
+        } => {
+            run_dns_test(&input, &domain, interface.as_deref(), strict)?;
+        }
+
+        Commands::Mask { command } => match command {
+            MaskCommand::List { input } => {
+                list_masks(&input)?;
+            }
+
+            MaskCommand::Set {
+                input,
+                tag,
+                server_name,
+                fingerprint,
+                output,
+            } => {
+                set_mask(
+                    &input,
+                    &tag,
+                    server_name.as_deref(),
+                    fingerprint.as_deref(),
+                    output.as_deref(),
+                )?;
+            }
+        },
+
         Commands::KillSwitch { command } => match command {
             KillSwitchCommand::Enable { input, smart } => {
                 enable_killswitch(&input, smart)?;
@@ -283,6 +498,7 @@ pub fn run() -> Result<()> {
             interval,
             domain,
             diagnose_interval,
+            heal_interval,
             timeout,
             jobs,
             samples,
@@ -294,6 +510,7 @@ pub fn run() -> Result<()> {
                 interval,
                 domain,
                 diagnose_interval,
+                heal_interval,
                 timeout,
                 jobs,
                 samples,
@@ -439,7 +656,20 @@ enum UiAction {
     Stop,
     DiagnoseCustom,
     DiagnoseAiAccess,
+    BackupCreate,
+    BackupList,
+    BackupRestoreLatest,
+    Doctor,
     ListRules,
+    ListMasks,
+    LeakTest,
+    DnsTest,
+    HealthCheck,
+    Repair,
+    WhitelistList,
+    WhitelistTest,
+    SetMaskFingerprint,
+    SetMaskServerName,
     ImportSubscription,
     ChangeConfig,
     ToggleLanguage,
@@ -629,6 +859,97 @@ fn ui_items() -> Vec<UiItem> {
             ru: "Показать правила роутинга",
             en_hint: "Shows current domain routing rules.",
             ru_hint: "Показывает текущие правила роутинга доменов.",
+        },
+        UiItem {
+            action: UiAction::ListMasks,
+            en: "Show Reality/uTLS masks",
+            ru: "Показать маскировку Reality/uTLS",
+            en_hint: "Shows server_name and uTLS fingerprint for VLESS Reality nodes.",
+            ru_hint: "Показывает server_name и uTLS fingerprint у VLESS Reality-нод.",
+        },
+        UiItem {
+            action: UiAction::LeakTest,
+            en: "Run leak-test",
+            ru: "Проверка утечек / leak-test",
+            en_hint: "Checks kill-switch, direct blocking, SOCKS route, SNI and proxy destinations.",
+            ru_hint: "Проверяет kill-switch, блокировку direct, SOCKS-маршрут, SNI и IP proxy-нод.",
+        },
+        UiItem {
+            action: UiAction::DnsTest,
+            en: "DNS leak-test",
+            ru: "DNS leak-test",
+            en_hint: "Captures DNS/DoH/DoT traffic and checks that target domains do not leak.",
+            ru_hint: "Ловит DNS/DoH/DoT трафик и проверяет, что целевые домены не утекают.",
+        },
+        UiItem {
+            action: UiAction::HealthCheck,
+            en: "Health check",
+            ru: "Проверка здоровья SmartRoute",
+            en_hint: "Checks config, sing-box, SOCKS port, kill-switch and proxy-only policy.",
+            ru_hint: "Проверяет конфиг, sing-box, SOCKS-порт, kill-switch и proxy-only политику.",
+        },
+        UiItem {
+            action: UiAction::BackupCreate,
+            en: "Create config backup",
+            ru: "Создать backup конфига",
+            en_hint: "Creates a snapshot of the current config.",
+            ru_hint: "Создаёт снимок текущего конфига.",
+        },
+        UiItem {
+            action: UiAction::BackupList,
+            en: "Show config backups",
+            ru: "Показать backups конфига",
+            en_hint: "Shows saved config snapshots.",
+            ru_hint: "Показывает сохранённые снимки конфига.",
+        },
+        UiItem {
+            action: UiAction::BackupRestoreLatest,
+            en: "Restore latest backup",
+            ru: "Восстановить последний backup",
+            en_hint: "Restores the latest backup for the current config.",
+            ru_hint: "Восстанавливает последний backup текущего конфига.",
+        },
+        UiItem {
+            action: UiAction::Doctor,
+            en: "Config doctor",
+            ru: "Доктор конфига",
+            en_hint: "Checks duplicate rules, direct leaks, unknown outbounds, chains and generated sing-box config.",
+            ru_hint: "Проверяет дубли правил, direct-утечки, неизвестные outbounds, chains и sing-box конфиг.",
+        },
+        UiItem {
+            action: UiAction::Repair,
+            en: "Repair automatically",
+            ru: "Починить автоматически",
+            en_hint: "Restarts SmartRoute and enables kill-switch if something is broken.",
+            ru_hint: "Перезапускает SmartRoute и включает kill-switch, если что-то сломалось.",
+        },
+        UiItem {
+            action: UiAction::WhitelistList,
+            en: "Whitelist: show compatible masks",
+            ru: "Whitelist: показать подходящие маски",
+            en_hint: "Shows Reality server_name values that look like allowed RU/major services.",
+            ru_hint: "Показывает Reality server_name, похожие на разрешённые RU/крупные сервисы.",
+        },
+        UiItem {
+            action: UiAction::WhitelistTest,
+            en: "Whitelist: test current route",
+            ru: "Whitelist: проверить текущий маршрут",
+            en_hint: "Checks that captured SNI belongs to whitelist groups like VK/Yandex/Ozon.",
+            ru_hint: "Проверяет, что SNI относится к whitelist-группам: VK/Yandex/Ozon и т.д.",
+        },
+        UiItem {
+            action: UiAction::SetMaskFingerprint,
+            en: "Change Reality/uTLS fingerprint",
+            ru: "Изменить fingerprint Reality-ноды",
+            en_hint: "Changes uTLS fingerprint: chrome, firefox, safari, edge, android, etc.",
+            ru_hint: "Меняет uTLS fingerprint: chrome, firefox, safari, edge, android и т.д.",
+        },
+        UiItem {
+            action: UiAction::SetMaskServerName,
+            en: "Change Reality server_name",
+            ru: "Изменить server_name Reality-ноды",
+            en_hint: "Changes TLS server_name/SNI. Warning: may break the node.",
+            ru_hint: "Меняет TLS server_name/SNI. Важно: может сломать ноду.",
         },
         UiItem {
             action: UiAction::DiagnoseAiAccess,
@@ -864,7 +1185,7 @@ fn run_ui_action(action: UiAction, input: &mut PathBuf, lang: UiLang) -> Result<
                 "discord.com".to_string(),
                 "youtube.com".to_string(),
             ];
-            run_daemon(input, 2, domains, 300, 8, 12, 3, 25, false)?;
+            run_daemon(input, 2, domains, 300, 30, 8, 12, 3, 25, false)?;
             Ok(None)
         }
         UiAction::StartDaemonFull => {
@@ -880,7 +1201,7 @@ fn run_ui_action(action: UiAction, input: &mut PathBuf, lang: UiLang) -> Result<
                 "discord.com".to_string(),
                 "youtube.com".to_string(),
             ];
-            run_daemon(input, 2, domains, 300, 8, 12, 3, 25, true)?;
+            run_daemon(input, 2, domains, 300, 30, 8, 12, 3, 25, true)?;
             Ok(None)
         }
         UiAction::StartOnce => {
@@ -938,6 +1259,88 @@ fn run_ui_action(action: UiAction, input: &mut PathBuf, lang: UiLang) -> Result<
             pause(lang)?;
             Ok(None)
         }
+
+        UiAction::ListMasks => {
+            crate::mask::list_masks(input)?;
+            pause(lang)?;
+            Ok(None)
+        }
+
+        UiAction::LeakTest => {
+            run_leak_test(input, "google.com", None)?;
+            pause(lang)?;
+            Ok(None)
+        }
+
+        UiAction::DnsTest => {
+            run_dns_test(input, "youtube.com", None, false)?;
+            pause(lang)?;
+            Ok(None)
+        }
+
+        UiAction::HealthCheck => {
+            health_check(input, "google.com", false)?;
+            pause(lang)?;
+            Ok(None)
+        }
+
+        UiAction::BackupCreate => {
+            backup_config(input)?;
+            pause(lang)?;
+            Ok(None)
+        }
+
+        UiAction::BackupList => {
+            list_backups(Some(input.as_path()))?;
+            pause(lang)?;
+            Ok(None)
+        }
+
+        UiAction::BackupRestoreLatest => {
+            restore_backup(input, None)?;
+            pause(lang)?;
+            Ok(Some(match lang {
+                UiLang::En => "Latest backup restored.".to_string(),
+                UiLang::Ru => "Последний backup восстановлен.".to_string(),
+            }))
+        }
+
+        UiAction::Doctor => {
+            doctor_config(input, false)?;
+            pause(lang)?;
+            Ok(None)
+        }
+
+        UiAction::Repair => {
+            repair_smartroute(input, "google.com", false)?;
+            pause(lang)?;
+            Ok(None)
+        }
+
+        UiAction::WhitelistList => {
+            list_whitelist_masks(input)?;
+            pause(lang)?;
+            Ok(None)
+        }
+
+        UiAction::WhitelistTest => {
+            run_whitelist_test(input, "youtube.com", None)?;
+            pause(lang)?;
+            Ok(None)
+        }
+
+        UiAction::SetMaskFingerprint => {
+            change_mask_fingerprint(input, lang)?;
+            pause(lang)?;
+            Ok(None)
+        }
+
+        UiAction::SetMaskServerName => {
+            change_mask_server_name(input, lang)?;
+            pause(lang)?;
+            Ok(None)
+        }
+
         UiAction::ImportSubscription => {
             let url = prompt_line(match lang {
                 UiLang::En => "Subscription URL: ",
@@ -978,6 +1381,7 @@ fn run_ui_action(action: UiAction, input: &mut PathBuf, lang: UiLang) -> Result<
             if !new_path.is_empty() {
                 *input = PathBuf::from(new_path);
             }
+            pause(lang)?;
             Ok(Some(format!(
                 "{} {}",
                 match lang {
@@ -1019,10 +1423,12 @@ fn run_ui_action(action: UiAction, input: &mut PathBuf, lang: UiLang) -> Result<
 
         UiAction::EditSitesConfig => {
             crate::config_editor::edit_sites_config(input);
+            pause(lang)?;
             Ok(None)
         }
         UiAction::EditAppsConfig => {
             crate::config_editor::edit_apps_config(input);
+            pause(lang)?;
             Ok(None)
         }
 
@@ -1032,7 +1438,14 @@ fn run_ui_action(action: UiAction, input: &mut PathBuf, lang: UiLang) -> Result<
 
 fn clear_for_command() -> Result<()> {
     let mut out = io::stdout();
-    execute!(out, terminal::Clear(ClearType::All), cursor::MoveTo(0, 0))?;
+
+    execute!(
+        out,
+        terminal::Clear(ClearType::Purge),
+        terminal::Clear(ClearType::All),
+        cursor::MoveTo(0, 0)
+    )?;
+
     Ok(())
 }
 
@@ -1057,77 +1470,118 @@ fn pause(lang: UiLang) -> Result<()> {
             UiLang::Ru => "Нажми Enter, чтобы вернуться в меню...",
         }
     );
+
     let _ = read_line_trimmed()?;
+
+    clear_for_command()?;
+
     Ok(())
 }
 
-fn print_about(lang: UiLang) {
-    match lang {
-        UiLang::En => {
-            println!("SmartRoute is a local SOCKS5 proxy router, not a VPN.");
-            println!();
-            println!("Proxy:");
-            println!(
-                "  Routes traffic only from apps configured to use it, for example a browser."
-            );
-            println!("  SmartRoute exposes SOCKS5 at 127.0.0.1:1081.");
-            println!();
-            println!("VPN:");
-            println!("  Usually routes the whole system or network interface through a tunnel.");
-            println!();
-            println!(
-                "SmartRoute chooses working outbound nodes per domain and writes sing-box rules."
-            );
-        }
-        UiLang::Ru => {
-            println!("SmartRoute — это локальный SOCKS5 proxy-router, а не VPN.");
-            println!();
-            println!("Прокси:");
-            println!(
-                "  Пропускает трафик только тех приложений, где ты указал прокси, например браузера."
-            );
-            println!("  SmartRoute поднимает SOCKS5 на 127.0.0.1:1081.");
-            println!();
-            println!("VPN:");
-            println!("  Обычно гонит весь системный трафик или сетевой интерфейс через туннель.");
-            println!();
-            println!(
-                "SmartRoute выбирает рабочие outbound-ноды по доменам и пишет правила sing-box."
-            );
-        }
+fn change_mask_fingerprint(input: &PathBuf, lang: UiLang) -> Result<()> {
+    println!();
+
+    crate::mask::list_masks(input)?;
+
+    println!();
+
+    let tag = prompt_line(match lang {
+        UiLang::En => "Node tag",
+        UiLang::Ru => "Тег ноды",
+    })?;
+
+    if tag.trim().is_empty() {
+        println!(
+            "{}",
+            match lang {
+                UiLang::En => "Cancelled: empty node tag",
+                UiLang::Ru => "Отменено: пустой тег ноды",
+            }
+        );
+        return Ok(());
     }
+
+    let fingerprint = prompt_line(match lang {
+        UiLang::En => "Fingerprint (chrome/firefox/edge/safari/ios/android/random/randomized)",
+        UiLang::Ru => "Fingerprint (chrome/firefox/edge/safari/ios/android/random/randomized)",
+    })?;
+
+    if fingerprint.trim().is_empty() {
+        println!(
+            "{}",
+            match lang {
+                UiLang::En => "Cancelled: empty fingerprint",
+                UiLang::Ru => "Отменено: пустой fingerprint",
+            }
+        );
+        return Ok(());
+    }
+
+    crate::mask::set_mask(
+        input,
+        tag.trim(),
+        None,
+        Some(fingerprint.trim()),
+        Some(input.as_path()),
+    )?;
+
+    Ok(())
 }
 
-fn add_chatgpt_rules(input: &PathBuf, outbound: &str) -> Result<()> {
-    let mut config = load_config(input)?;
+fn change_mask_server_name(input: &PathBuf, lang: UiLang) -> Result<()> {
+    println!();
 
-    let domains = [
-        "chatgpt.com",
-        "openai.com",
-        "oaistatic.com",
-        "oaiusercontent.com",
-        "chat.openai.com",
-        "auth.openai.com",
-        "cdn.oaistatic.com",
-    ];
+    crate::mask::list_masks(input)?;
 
-    for domain in domains {
-        config
-            .rules
-            .retain(|rule| !(rule.rule_type == "domain_suffix" && rule.value == domain));
+    println!();
 
-        config.rules.push(Rule {
-            rule_type: "domain_suffix".to_string(),
-            value: domain.to_string(),
-            outbound: outbound.to_string(),
-        });
+    let tag = prompt_line(match lang {
+        UiLang::En => "Node tag",
+        UiLang::Ru => "Тег ноды",
+    })?;
+
+    if tag.trim().is_empty() {
+        println!(
+            "{}",
+            match lang {
+                UiLang::En => "Cancelled: empty node tag",
+                UiLang::Ru => "Отменено: пустой тег ноды",
+            }
+        );
+        return Ok(());
     }
 
-    validate_config(&config)?;
-    write_config_toml(input, &config)?;
+    println!(
+        "{}",
+        match lang {
+            UiLang::En => "Warning: changing server_name may break Reality node.",
+            UiLang::Ru => "Внимание: изменение server_name может сломать Reality-ноду.",
+        }
+    );
 
-    println!("ChatGPT/OpenAI rules saved to {}", input.display());
-    println!("Outbound: {}", outbound);
+    let server_name = prompt_line(match lang {
+        UiLang::En => "New server_name/SNI",
+        UiLang::Ru => "Новый server_name/SNI",
+    })?;
+
+    if server_name.trim().is_empty() {
+        println!(
+            "{}",
+            match lang {
+                UiLang::En => "Cancelled: empty server_name",
+                UiLang::Ru => "Отменено: пустой server_name",
+            }
+        );
+        return Ok(());
+    }
+
+    crate::mask::set_mask(
+        input,
+        tag.trim(),
+        Some(server_name.trim()),
+        None,
+        Some(input.as_path()),
+    )?;
 
     Ok(())
 }

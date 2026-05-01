@@ -81,6 +81,9 @@ pub struct Node {
     pub server_name: Option<String>,
 
     #[serde(default)]
+    pub utls_fingerprint: Option<String>,
+
+    #[serde(default)]
     pub reality_public_key: Option<String>,
 
     #[serde(default)]
@@ -269,6 +272,10 @@ pub fn validate_config(config: &SmartRouteConfig) -> Result<()> {
 pub fn save_config(path: &Path, config: &SmartRouteConfig) -> Result<()> {
     let raw =
         toml::to_string_pretty(config).context("Failed to serialize SmartRoute TOML config")?;
+
+    crate::backup::create_backup_if_exists(path)?;
+
     fs::write(path, raw).with_context(|| format!("Failed to write config: {}", path.display()))?;
+
     Ok(())
 }
