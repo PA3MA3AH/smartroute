@@ -4,6 +4,7 @@ use crate::{
     daemon::run_daemon,
     diagnosis::{diagnose_ai_access, diagnose_site, watch_sites},
     killswitch::{disable_killswitch, enable_killswitch, status_killswitch},
+    leaktest::run_leak_test,
     mask::{list_masks, set_mask},
     picker::pick_node,
     resolve::resolve_domains_to_ip,
@@ -38,6 +39,16 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    LeakTest {
+        input: PathBuf,
+
+        #[arg(long, default_value = "google.com")]
+        domain: String,
+
+        #[arg(short, long)]
+        interface: Option<String>,
+    },
+
     Mask {
         #[command(subcommand)]
         command: MaskCommand,
@@ -276,6 +287,14 @@ pub fn run() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::LeakTest {
+            input,
+            domain,
+            interface,
+        } => {
+            run_leak_test(&input, &domain, interface.as_deref())?;
+        }
+
         Commands::Mask { command } => match command {
             MaskCommand::List { input } => {
                 list_masks(&input)?;
@@ -490,6 +509,7 @@ enum UiAction {
     DiagnoseAiAccess,
     ListRules,
     ListMasks,
+    LeakTest,
     SetMaskFingerprint,
     SetMaskServerName,
     ImportSubscription,
@@ -688,6 +708,13 @@ fn ui_items() -> Vec<UiItem> {
             ru: "Показать маскировку Reality/uTLS",
             en_hint: "Shows server_name and uTLS fingerprint for VLESS Reality nodes.",
             ru_hint: "Показывает server_name и uTLS fingerprint у VLESS Reality-нод.",
+        },
+        UiItem {
+            action: UiAction::LeakTest,
+            en: "Run leak-test",
+            ru: "Проверка утечек / leak-test",
+            en_hint: "Checks kill-switch, direct blocking, SOCKS route, SNI and proxy destinations.",
+            ru_hint: "Проверяет kill-switch, блокировку direct, SOCKS-маршрут, SNI и IP proxy-нод.",
         },
         UiItem {
             action: UiAction::SetMaskFingerprint,
@@ -1014,6 +1041,11 @@ fn run_ui_action(action: UiAction, input: &mut PathBuf, lang: UiLang) -> Result<
 
         UiAction::ListMasks => {
             crate::mask::list_masks(input)?;
+            Ok(None)
+        }
+
+        UiAction::LeakTest => {
+            run_leak_test(input, "google.com", None)?;
             Ok(None)
         }
 

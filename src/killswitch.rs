@@ -93,8 +93,8 @@ pub fn enable_killswitch(config_path: &Path, smart_mode: bool) -> Result<()> {
 
     println!("Kill-switch enabled");
     if smart_mode {
-        println!("Mode: smart");
-        println!("Note: direct domain bypass is still handled by sing-box config, not nftables.");
+        println!("Mode: proxy-only");
+        println!("Direct outbound is blocked. All traffic should go through proxy/chain.");
     } else {
         println!("Mode: strict");
     }
