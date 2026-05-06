@@ -1,0 +1,31 @@
+[Unit]
+Description=SmartRoute - Smart Proxy Router
+Documentation=https://github.com/PA3MA3AH/smartroute
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/smartroute daemon /etc/smartroute/config.toml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5s
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/run/smartroute /var/log/smartroute
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=smartroute
+
+[Install]
+WantedBy=multi-user.target

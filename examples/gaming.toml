@@ -1,0 +1,68 @@
+# Конфигурация для игр (низкая задержка)
+
+[general]
+mode = "socks"
+listen = "127.0.0.1"
+listen_port = 1081
+final_outbound = "gaming-chain"
+
+# Низколатентные ноды
+[[nodes]]
+tag = "low-latency-1"
+type = "vless"
+server = "game1.example.com"
+port = 443
+uuid = "uuid-1"
+security = "reality"
+server_name = "example.com"
+utls_fingerprint = "chrome"
+
+[[nodes]]
+tag = "low-latency-2"
+type = "vless"
+server = "game2.example.com"
+port = 443
+uuid = "uuid-2"
+security = "reality"
+server_name = "example.com"
+utls_fingerprint = "chrome"
+
+# Gaming chain
+[[chains]]
+tag = "gaming-chain"
+outbounds = ["low-latency-1"]
+
+# Game-specific rules
+[[rules]]
+type = "domain_suffix"
+value = "steampowered.com"
+outbound = "low-latency-1"
+
+[[rules]]
+type = "domain_suffix"
+value = "epicgames.com"
+outbound = "low-latency-1"
+
+[[rules]]
+type = "domain_suffix"
+value = "riotgames.com"
+outbound = "low-latency-2"
+
+[[rules]]
+type = "domain_keyword"
+value = "game"
+outbound = "gaming-chain"
+
+# Dedicated port for Steam
+[[local_profiles]]
+tag = "steam"
+listen = "127.0.0.1"
+listen_port = 1082
+outbound = "low-latency-1"
+
+# Dedicated port for Epic Games
+[[local_profiles]]
+tag = "epic"
+listen = "127.0.0.1"
+listen_port = 1083
+outbound = "low-latency-1"

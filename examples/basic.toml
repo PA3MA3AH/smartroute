@@ -1,0 +1,20 @@
+# Минимальная конфигурация SmartRoute
+
+[general]
+mode = "socks"
+listen = "127.0.0.1"
+listen_port = 1081
+final_outbound = "direct"
+
+# Простой VLESS proxy
+[[nodes]]
+tag = "my-proxy"
+type = "vless"
+server = "example.com"
+port = 443
+uuid = "your-uuid-here"
+security = "reality"
+server_name = "example.com"
+utls_fingerprint = "chrome"
+reality_public_key = "your-public-key"
+reality_short_id = "your-short-id"

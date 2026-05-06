@@ -1,0 +1,73 @@
+# Продвинутая конфигурация с rules, chains и profiles
+
+[general]
+mode = "socks"
+listen = "127.0.0.1"
+listen_port = 1081
+final_outbound = "fast-chain"
+
+# Nodes
+[[nodes]]
+tag = "ru-proxy-1"
+type = "vless"
+server = "ru1.example.com"
+port = 443
+uuid = "uuid-1"
+security = "reality"
+server_name = "example.com"
+
+[[nodes]]
+tag = "ru-proxy-2"
+type = "vless"
+server = "ru2.example.com"
+port = 443
+uuid = "uuid-2"
+security = "reality"
+server_name = "example.com"
+
+[[nodes]]
+tag = "fast-proxy"
+type = "vless"
+server = "fast.example.com"
+port = 443
+uuid = "uuid-3"
+security = "reality"
+server_name = "example.com"
+
+# Chains
+[[chains]]
+tag = "fast-chain"
+outbounds = ["ru-proxy-1", "fast-proxy"]
+
+[[chains]]
+tag = "double-hop"
+outbounds = ["ru-proxy-1", "ru-proxy-2"]
+
+# Site Rules
+[[rules]]
+type = "domain_suffix"
+value = "youtube.com"
+outbound = "fast-proxy"
+
+[[rules]]
+type = "domain_suffix"
+value = "github.com"
+outbound = "fast-chain"
+
+[[rules]]
+type = "domain_keyword"
+value = "google"
+outbound = "fast-proxy"
+
+# App Profiles
+[[local_profiles]]
+tag = "steam"
+listen = "127.0.0.1"
+listen_port = 1082
+outbound = "double-hop"
+
+[[local_profiles]]
+tag = "browser"
+listen = "127.0.0.1"
+listen_port = 1083
+outbound = "fast-proxy"
