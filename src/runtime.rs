@@ -6,6 +6,7 @@ use crate::{
 use anyhow::{Context, Result};
 use std::{
     fs,
+    net::{TcpStream, ToSocketAddrs},
     path::Path,
     process::{Command, Stdio},
     thread,
@@ -16,6 +17,35 @@ pub const RUNTIME_DIR: &str = "/run/smartroute";
 pub const PID_FILE: &str = "/run/smartroute/smartroute.pid";
 pub const LOG_FILE: &str = "/run/smartroute/sing-box.log";
 pub const SINGBOX_CONFIG_FILE: &str = "/run/smartroute/sing-box.json";
+
+const STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
+const POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+fn wait_for_port(host: &str, port: u16, timeout: Duration) -> Result<()> {
+    let addr = format!("{}:{}", host, port);
+    let start = std::time::Instant::now();
+
+    loop {
+        if start.elapsed() > timeout {
+            anyhow::bail!(
+                "Timeout waiting for {}:{} to become available after {:?}",
+                host,
+                port,
+                timeout
+            );
+        }
+
+        if let Ok(mut addrs) = addr.to_socket_addrs() {
+            if let Some(socket_addr) = addrs.next() {
+                if TcpStream::connect_timeout(&socket_addr, Duration::from_millis(500)).is_ok() {
+                    return Ok(());
+                }
+            }
+        }
+
+        thread::sleep(POLL_INTERVAL);
+    }
+}
 
 pub fn start_smartroute(input: &Path) -> Result<()> {
     if let Err(err) = resolve_domains_to_ip(input) {
@@ -52,11 +82,16 @@ pub fn start_smartroute(input: &Path) -> Result<()> {
         .spawn()
         .context("Failed to start sing-box. Is sing-box installed?")?;
 
-    thread::sleep(Duration::from_millis(700));
+    let pid = child.id();
+    fs::write(PID_FILE, pid.to_string()).context("Failed to write PID file")?;
 
+    // Wait for sing-box to become ready by checking if the port is available
+    let wait_result = wait_for_port(&config.general.listen, config.general.listen_port, STARTUP_TIMEOUT);
+
+    // Check if process is still running
     if let Some(status) = child
         .try_wait()
-        .context("Failed to check just-started sing-box process")?
+        .context("Failed to check sing-box process status")?
     {
         let log = fs::read_to_string(LOG_FILE).unwrap_or_default();
         let tail = last_lines(&log, 60);
@@ -68,9 +103,21 @@ pub fn start_smartroute(input: &Path) -> Result<()> {
         );
     }
 
-    fs::write(PID_FILE, child.id().to_string()).context("Failed to write PID file")?;
+    // If port check failed but process is still running, report the error
+    if let Err(e) = wait_result {
+        let log = fs::read_to_string(LOG_FILE).unwrap_or_default();
+        let tail = last_lines(&log, 60);
 
-    println!("SmartRoute started with PID {}", child.id());
+        anyhow::bail!(
+            "sing-box started but failed to bind to {}:{}\nError: {}\nLast log lines:\n{}",
+            config.general.listen,
+            config.general.listen_port,
+            e,
+            tail
+        );
+    }
+
+    println!("SmartRoute started with PID {}", pid);
     println!(
         "Mode: {} on {}:{}",
         config.general.mode, config.general.listen, config.general.listen_port

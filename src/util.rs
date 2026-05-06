@@ -200,3 +200,181 @@ outbound = "{}"
         escape_toml_string(&rule.outbound)
     ));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sanitize_tag_alphanumeric() {
+        assert_eq!(sanitize_tag("test123"), "test123");
+        assert_eq!(sanitize_tag("TestNode"), "testnode");
+    }
+
+    #[test]
+    fn test_sanitize_tag_with_spaces() {
+        assert_eq!(sanitize_tag("test node"), "test-node");
+        assert_eq!(sanitize_tag("test  node"), "test-node");
+    }
+
+    #[test]
+    fn test_sanitize_tag_with_special_chars() {
+        assert_eq!(sanitize_tag("test_node"), "test-node");
+        assert_eq!(sanitize_tag("test|node"), "test-node");
+        assert_eq!(sanitize_tag("test-node"), "test-node");
+    }
+
+    #[test]
+    fn test_sanitize_tag_leading_trailing_dashes() {
+        assert_eq!(sanitize_tag("-test-"), "test");
+        assert_eq!(sanitize_tag("--test--"), "test");
+    }
+
+    #[test]
+    fn test_sanitize_tag_empty() {
+        assert_eq!(sanitize_tag(""), "node");
+        assert_eq!(sanitize_tag("---"), "node");
+        assert_eq!(sanitize_tag("   "), "node");
+    }
+
+    #[test]
+    fn test_sanitize_tag_unicode() {
+        assert_eq!(sanitize_tag("тест"), "node");
+        assert_eq!(sanitize_tag("test🚀node"), "testnode");
+    }
+
+    #[test]
+    fn test_escape_toml_string_no_escape() {
+        assert_eq!(escape_toml_string("simple"), "simple");
+        assert_eq!(escape_toml_string("test-node"), "test-node");
+    }
+
+    #[test]
+    fn test_escape_toml_string_with_quotes() {
+        assert_eq!(escape_toml_string(r#"test"value"#), r#"test\"value"#);
+        assert_eq!(escape_toml_string(r#""quoted""#), r#"\"quoted\""#);
+    }
+
+    #[test]
+    fn test_escape_toml_string_with_backslash() {
+        assert_eq!(escape_toml_string(r"test\value"), r"test\\value");
+        assert_eq!(escape_toml_string(r"C:\path\to\file"), r"C:\\path\\to\\file");
+    }
+
+    #[test]
+    fn test_escape_toml_string_combined() {
+        assert_eq!(escape_toml_string(r#"test\"value"#), r#"test\\\"value"#);
+    }
+
+    #[test]
+    fn test_hex_to_utf8_valid() {
+        assert_eq!(hex_to_utf8("48656c6c6f"), Some("Hello".to_string()));
+        assert_eq!(hex_to_utf8("776f726c64"), Some("world".to_string()));
+    }
+
+    #[test]
+    fn test_hex_to_utf8_uppercase() {
+        assert_eq!(hex_to_utf8("48656C6C6F"), Some("Hello".to_string()));
+        assert_eq!(hex_to_utf8("48656c6C6f"), Some("Hello".to_string()));
+    }
+
+    #[test]
+    fn test_hex_to_utf8_with_whitespace() {
+        assert_eq!(hex_to_utf8("  48656c6c6f  "), Some("Hello".to_string()));
+    }
+
+    #[test]
+    fn test_hex_to_utf8_odd_length() {
+        assert_eq!(hex_to_utf8("123"), None);
+        assert_eq!(hex_to_utf8("12345"), None);
+    }
+
+    #[test]
+    fn test_hex_to_utf8_invalid_chars() {
+        assert_eq!(hex_to_utf8("48656g6c6f"), None);
+        assert_eq!(hex_to_utf8("xyz"), None);
+    }
+
+    #[test]
+    fn test_hex_to_utf8_invalid_utf8() {
+        assert_eq!(hex_to_utf8("c328"), None);
+        assert_eq!(hex_to_utf8("a0a1"), None);
+    }
+
+    #[test]
+    fn test_hex_to_utf8_empty() {
+        assert_eq!(hex_to_utf8(""), Some("".to_string()));
+        assert_eq!(hex_to_utf8("   "), Some("".to_string()));
+    }
+
+    #[test]
+    fn test_write_config_toml_minimal() {
+        use crate::config::{General, SmartRouteConfig, SubscriptionSettings};
+        use tempfile::NamedTempFile;
+
+        let config = SmartRouteConfig {
+            general: General {
+                mode: "socks".to_string(),
+                listen: "127.0.0.1".to_string(),
+                listen_port: 1081,
+                final_outbound: "direct".to_string(),
+            },
+            subscription: SubscriptionSettings::default(),
+            nodes: vec![],
+            chains: vec![],
+            local_profiles: vec![],
+            rules: vec![],
+        };
+
+        let temp_file = NamedTempFile::new().unwrap();
+        write_config_toml(temp_file.path(), &config).unwrap();
+
+        let content = std::fs::read_to_string(temp_file.path()).unwrap();
+        assert!(content.contains("[general]"));
+        assert!(content.contains("mode = \"socks\""));
+        assert!(content.contains("listen_port = 1081"));
+        assert!(content.contains("final_outbound = \"direct\""));
+    }
+
+    #[test]
+    fn test_write_config_toml_with_nodes() {
+        use crate::config::{General, Node, SmartRouteConfig, SubscriptionSettings};
+        use tempfile::NamedTempFile;
+
+        let config = SmartRouteConfig {
+            general: General {
+                mode: "socks".to_string(),
+                listen: "127.0.0.1".to_string(),
+                listen_port: 1081,
+                final_outbound: "node1".to_string(),
+            },
+            subscription: SubscriptionSettings::default(),
+            nodes: vec![Node {
+                tag: "node1".to_string(),
+                node_type: "vless".to_string(),
+                server: "example.com".to_string(),
+                port: 443,
+                uuid: Some("test-uuid".to_string()),
+                flow: None,
+                security: Some("reality".to_string()),
+                server_name: Some("example.com".to_string()),
+                utls_fingerprint: Some("chrome".to_string()),
+                reality_public_key: Some("test-key".to_string()),
+                reality_short_id: Some("test-id".to_string()),
+            }],
+            chains: vec![],
+            local_profiles: vec![],
+            rules: vec![],
+        };
+
+        let temp_file = NamedTempFile::new().unwrap();
+        write_config_toml(temp_file.path(), &config).unwrap();
+
+        let content = std::fs::read_to_string(temp_file.path()).unwrap();
+        assert!(content.contains("[[nodes]]"));
+        assert!(content.contains("tag = \"node1\""));
+        assert!(content.contains("type = \"vless\""));
+        assert!(content.contains("server = \"example.com\""));
+        assert!(content.contains("uuid = \"test-uuid\""));
+    }
+}

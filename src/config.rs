@@ -279,3 +279,259 @@ pub fn save_config(path: &Path, config: &SmartRouteConfig) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    fn create_minimal_config() -> SmartRouteConfig {
+        SmartRouteConfig {
+            general: General {
+                mode: "socks".to_string(),
+                listen: "127.0.0.1".to_string(),
+                listen_port: 1081,
+                final_outbound: "direct".to_string(),
+            },
+            subscription: SubscriptionSettings::default(),
+            nodes: vec![],
+            chains: vec![],
+            local_profiles: vec![],
+            rules: vec![],
+        }
+    }
+
+    fn create_test_node(tag: &str) -> Node {
+        Node {
+            tag: tag.to_string(),
+            node_type: "vless".to_string(),
+            server: "example.com".to_string(),
+            port: 443,
+            uuid: Some("test-uuid".to_string()),
+            flow: None,
+            security: Some("reality".to_string()),
+            server_name: Some("example.com".to_string()),
+            utls_fingerprint: Some("chrome".to_string()),
+            reality_public_key: Some("test-key".to_string()),
+            reality_short_id: Some("test-id".to_string()),
+        }
+    }
+
+    #[test]
+    fn test_validate_minimal_config() {
+        let config = create_minimal_config();
+        assert!(validate_config(&config).is_ok());
+    }
+
+    #[test]
+    fn test_validate_unsupported_mode() {
+        let mut config = create_minimal_config();
+        config.general.mode = "invalid".to_string();
+
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Unsupported mode"));
+    }
+
+    #[test]
+    fn test_validate_empty_listen() {
+        let mut config = create_minimal_config();
+        config.general.listen = "".to_string();
+
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("listen cannot be empty"));
+    }
+
+    #[test]
+    fn test_validate_duplicate_node_tags() {
+        let mut config = create_minimal_config();
+        config.nodes = vec![
+            create_test_node("node1"),
+            create_test_node("node1"),
+        ];
+        config.general.final_outbound = "node1".to_string();
+
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Duplicate outbound tag"));
+    }
+
+    #[test]
+    fn test_validate_vless_without_uuid() {
+        let mut config = create_minimal_config();
+        let mut node = create_test_node("node1");
+        node.uuid = None;
+        config.nodes = vec![node];
+        config.general.final_outbound = "node1".to_string();
+
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("has no uuid"));
+    }
+
+    #[test]
+    fn test_validate_chain_with_valid_outbounds() {
+        let mut config = create_minimal_config();
+        config.nodes = vec![
+            create_test_node("node1"),
+            create_test_node("node2"),
+        ];
+        config.chains = vec![Chain {
+            tag: "chain1".to_string(),
+            outbounds: vec!["node1".to_string(), "node2".to_string()],
+        }];
+        config.general.final_outbound = "chain1".to_string();
+
+        assert!(validate_config(&config).is_ok());
+    }
+
+    #[test]
+    fn test_validate_chain_with_less_than_two_outbounds() {
+        let mut config = create_minimal_config();
+        config.nodes = vec![create_test_node("node1")];
+        config.chains = vec![Chain {
+            tag: "chain1".to_string(),
+            outbounds: vec!["node1".to_string()],
+        }];
+        config.general.final_outbound = "chain1".to_string();
+
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("must contain at least 2 outbounds"));
+    }
+
+    #[test]
+    fn test_validate_chain_self_reference() {
+        let mut config = create_minimal_config();
+        config.nodes = vec![create_test_node("node1")];
+        config.chains = vec![Chain {
+            tag: "chain1".to_string(),
+            outbounds: vec!["chain1".to_string(), "node1".to_string()],
+        }];
+        config.general.final_outbound = "chain1".to_string();
+
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("cannot reference itself"));
+    }
+
+    #[test]
+    fn test_validate_chain_unknown_outbound() {
+        let mut config = create_minimal_config();
+        config.nodes = vec![create_test_node("node1")];
+        config.chains = vec![Chain {
+            tag: "chain1".to_string(),
+            outbounds: vec!["node1".to_string(), "unknown".to_string()],
+        }];
+        config.general.final_outbound = "chain1".to_string();
+
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("unknown base outbound"));
+    }
+
+    #[test]
+    fn test_validate_unknown_final_outbound() {
+        let mut config = create_minimal_config();
+        config.general.final_outbound = "unknown".to_string();
+
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("final_outbound points to unknown outbound"));
+    }
+
+    #[test]
+    fn test_validate_duplicate_local_profile_ports() {
+        let mut config = create_minimal_config();
+        config.nodes = vec![create_test_node("node1")];
+        config.local_profiles = vec![
+            LocalProfile {
+                tag: "profile1".to_string(),
+                listen: "127.0.0.1".to_string(),
+                listen_port: 1082,
+                outbound: "node1".to_string(),
+            },
+            LocalProfile {
+                tag: "profile2".to_string(),
+                listen: "127.0.0.1".to_string(),
+                listen_port: 1082,
+                outbound: "node1".to_string(),
+            },
+        ];
+        config.general.final_outbound = "node1".to_string();
+
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Duplicate local listen port"));
+    }
+
+    #[test]
+    fn test_validate_local_profile_unknown_outbound() {
+        let mut config = create_minimal_config();
+        config.local_profiles = vec![LocalProfile {
+            tag: "profile1".to_string(),
+            listen: "127.0.0.1".to_string(),
+            listen_port: 1082,
+            outbound: "unknown".to_string(),
+        }];
+
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("points to unknown outbound"));
+    }
+
+    #[test]
+    fn test_validate_rule_unknown_outbound() {
+        let mut config = create_minimal_config();
+        config.rules = vec![Rule {
+            rule_type: "domain_suffix".to_string(),
+            value: "example.com".to_string(),
+            outbound: "unknown".to_string(),
+        }];
+
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("points to unknown outbound"));
+    }
+
+    #[test]
+    fn test_validate_unsupported_rule_type() {
+        let mut config = create_minimal_config();
+        config.rules = vec![Rule {
+            rule_type: "invalid_type".to_string(),
+            value: "example.com".to_string(),
+            outbound: "direct".to_string(),
+        }];
+
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Unsupported rule type"));
+    }
+
+    #[test]
+    fn test_load_and_save_config() {
+        let config = create_minimal_config();
+
+        let mut temp_file = NamedTempFile::new().unwrap();
+        let toml_content = toml::to_string_pretty(&config).unwrap();
+        temp_file.write_all(toml_content.as_bytes()).unwrap();
+        temp_file.flush().unwrap();
+
+        let loaded = load_config(temp_file.path()).unwrap();
+        assert_eq!(loaded.general.mode, "socks");
+        assert_eq!(loaded.general.listen_port, 1081);
+        assert_eq!(loaded.general.final_outbound, "direct");
+    }
+
+    #[test]
+    fn test_load_invalid_toml() {
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(b"invalid toml {{{").unwrap();
+        temp_file.flush().unwrap();
+
+        let result = load_config(temp_file.path());
+        assert!(result.is_err());
+    }
+}
