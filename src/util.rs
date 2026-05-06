@@ -2,6 +2,41 @@ use crate::config::{Chain, LocalProfile, Node, Rule, SmartRouteConfig};
 use anyhow::{Context, Result};
 use std::{fs, path::Path};
 
+pub fn atomic_write(path: &Path, content: &str) -> Result<()> {
+    let parent = path.parent().context("Path has no parent directory")?;
+
+    // Create a temporary file in the same directory as the target
+    let temp_path = parent.join(format!(
+        ".{}.tmp.{}",
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("config"),
+        std::process::id()
+    ));
+
+    tracing::debug!(
+        temp_file = %temp_path.display(),
+        target_file = %path.display(),
+        size = %content.len(),
+        "Writing to temporary file"
+    );
+
+    // Write to temporary file
+    fs::write(&temp_path, content)
+        .with_context(|| format!("Failed to write temporary file: {}", temp_path.display()))?;
+
+    // Atomically rename temporary file to target
+    fs::rename(&temp_path, path)
+        .with_context(|| format!("Failed to rename {} to {}", temp_path.display(), path.display()))?;
+
+    tracing::debug!(
+        file = %path.display(),
+        "Atomic write completed successfully"
+    );
+
+    Ok(())
+}
+
 pub fn sanitize_tag(input: &str) -> String {
     let mut out = String::new();
     let mut last_dash = false;
@@ -99,7 +134,7 @@ pub fn write_config_toml(path: &Path, config: &SmartRouteConfig) -> Result<()> {
 
     crate::backup::create_backup_if_exists(path)?;
 
-    fs::write(path, out).with_context(|| format!("Failed to write {}", path.display()))?;
+    atomic_write(path, &out)?;
 
     Ok(())
 }
@@ -376,5 +411,49 @@ mod tests {
         assert!(content.contains("type = \"vless\""));
         assert!(content.contains("server = \"example.com\""));
         assert!(content.contains("uuid = \"test-uuid\""));
+    }
+
+    #[test]
+    fn test_atomic_write_creates_file() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("test.txt");
+        let content = "test content";
+
+        atomic_write(&file_path, content).unwrap();
+
+        let read_content = std::fs::read_to_string(&file_path).unwrap();
+        assert_eq!(read_content, content);
+    }
+
+    #[test]
+    fn test_atomic_write_overwrites_existing() {
+        use tempfile::NamedTempFile;
+
+        let temp_file = NamedTempFile::new().unwrap();
+        std::fs::write(temp_file.path(), "old content").unwrap();
+
+        let new_content = "new content";
+        atomic_write(temp_file.path(), new_content).unwrap();
+
+        let read_content = std::fs::read_to_string(temp_file.path()).unwrap();
+        assert_eq!(read_content, new_content);
+    }
+
+    #[test]
+    fn test_atomic_write_no_partial_writes() {
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("test.txt");
+
+        // Write large content
+        let content = "x".repeat(10000);
+        atomic_write(&file_path, &content).unwrap();
+
+        // File should either exist with full content or not exist at all
+        let read_content = std::fs::read_to_string(&file_path).unwrap();
+        assert_eq!(read_content.len(), content.len());
     }
 }

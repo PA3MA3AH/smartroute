@@ -49,7 +49,7 @@ fn wait_for_port(host: &str, port: u16, timeout: Duration) -> Result<()> {
 
 pub fn start_smartroute(input: &Path) -> Result<()> {
     if let Err(err) = resolve_domains_to_ip(input) {
-        eprintln!("Warning: failed to resolve domains before start: {err:#}");
+        tracing::warn!(error = %err, "Failed to resolve domains before start");
     }
 
     let config = load_config(input)?;
@@ -63,16 +63,18 @@ pub fn start_smartroute(input: &Path) -> Result<()> {
 
     let _ = fs::remove_file(PID_FILE);
 
+    tracing::info!("Generating sing-box configuration");
     let singbox_config = generate_singbox_config(&config)?;
 
     let pretty = serde_json::to_string_pretty(&singbox_config)
         .context("Failed to serialize sing-box config")?;
 
-    fs::write(SINGBOX_CONFIG_FILE, pretty)
+    crate::util::atomic_write(Path::new(SINGBOX_CONFIG_FILE), &pretty)
         .with_context(|| format!("Failed to write {}", SINGBOX_CONFIG_FILE))?;
 
     let log_file = fs::File::create(LOG_FILE).context("Failed to create sing-box log file")?;
 
+    tracing::info!("Starting sing-box process");
     let mut child = Command::new("sing-box")
         .arg("run")
         .arg("-c")
@@ -85,6 +87,14 @@ pub fn start_smartroute(input: &Path) -> Result<()> {
     let pid = child.id();
     fs::write(PID_FILE, pid.to_string()).context("Failed to write PID file")?;
 
+    tracing::debug!(
+        pid = %pid,
+        host = %config.general.listen,
+        port = %config.general.listen_port,
+        timeout_secs = %STARTUP_TIMEOUT.as_secs(),
+        "Waiting for sing-box to become ready"
+    );
+
     // Wait for sing-box to become ready by checking if the port is available
     let wait_result = wait_for_port(&config.general.listen, config.general.listen_port, STARTUP_TIMEOUT);
 
@@ -95,6 +105,12 @@ pub fn start_smartroute(input: &Path) -> Result<()> {
     {
         let log = fs::read_to_string(LOG_FILE).unwrap_or_default();
         let tail = last_lines(&log, 60);
+
+        tracing::error!(
+            status = %status,
+            log_tail = %tail,
+            "sing-box exited immediately"
+        );
 
         anyhow::bail!(
             "sing-box exited immediately with status: {}\nLast log lines:\n{}",
@@ -108,6 +124,14 @@ pub fn start_smartroute(input: &Path) -> Result<()> {
         let log = fs::read_to_string(LOG_FILE).unwrap_or_default();
         let tail = last_lines(&log, 60);
 
+        tracing::error!(
+            error = %e,
+            host = %config.general.listen,
+            port = %config.general.listen_port,
+            log_tail = %tail,
+            "sing-box started but failed to bind to port"
+        );
+
         anyhow::bail!(
             "sing-box started but failed to bind to {}:{}\nError: {}\nLast log lines:\n{}",
             config.general.listen,
@@ -117,13 +141,14 @@ pub fn start_smartroute(input: &Path) -> Result<()> {
         );
     }
 
-    println!("SmartRoute started with PID {}", pid);
-    println!(
-        "Mode: {} on {}:{}",
-        config.general.mode, config.general.listen, config.general.listen_port
+    tracing::info!(
+        pid = %pid,
+        mode = %config.general.mode,
+        listen = %format!("{}:{}", config.general.listen, config.general.listen_port),
+        config_file = %SINGBOX_CONFIG_FILE,
+        log_file = %LOG_FILE,
+        "SmartRoute started successfully"
     );
-    println!("Config: {}", SINGBOX_CONFIG_FILE);
-    println!("Log: {}", LOG_FILE);
 
     Ok(())
 }
@@ -132,7 +157,7 @@ pub fn stop_smartroute() -> Result<()> {
     let pid = match fs::read_to_string(PID_FILE) {
         Ok(pid) => pid.trim().to_string(),
         Err(_) => {
-            println!("SmartRoute is not running");
+            tracing::info!("SmartRoute is not running (no PID file)");
             return Ok(());
         }
     };
@@ -147,6 +172,7 @@ pub fn stop_smartroute() -> Result<()> {
         .success();
 
     if running {
+        tracing::info!(pid = %pid, "Stopping SmartRoute");
         let status = Command::new("kill")
             .arg(&pid)
             .stdout(Stdio::null())
@@ -155,12 +181,12 @@ pub fn stop_smartroute() -> Result<()> {
             .context("Failed to stop SmartRoute")?;
 
         if status.success() {
-            println!("SmartRoute stopped");
+            tracing::info!(pid = %pid, "SmartRoute stopped successfully");
         } else {
-            println!("SmartRoute process could not be stopped");
+            tracing::error!(pid = %pid, "Failed to stop SmartRoute process");
         }
     } else {
-        println!("SmartRoute process was not running, stale PID file removed");
+        tracing::warn!(pid = %pid, "SmartRoute process was not running, removing stale PID file");
     }
 
     let _ = fs::remove_file(PID_FILE);
@@ -182,15 +208,21 @@ pub fn status_smartroute() -> Result<()> {
                 .context("Failed to check SmartRoute status")?;
 
             if status.success() {
-                println!("SmartRoute is running, PID {}", pid);
-                println!("Log: {}", LOG_FILE);
+                tracing::info!(
+                    pid = %pid,
+                    log_file = %LOG_FILE,
+                    "SmartRoute is running"
+                );
             } else {
-                println!("SmartRoute PID file exists, but process is not running");
-                println!("Try: sudo rm -f {}", PID_FILE);
+                tracing::warn!(
+                    pid = %pid,
+                    pid_file = %PID_FILE,
+                    "SmartRoute PID file exists, but process is not running"
+                );
             }
         }
         Err(_) => {
-            println!("SmartRoute is not running");
+            tracing::info!("SmartRoute is not running");
         }
     }
 

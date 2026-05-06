@@ -275,7 +275,7 @@ pub fn save_config(path: &Path, config: &SmartRouteConfig) -> Result<()> {
 
     crate::backup::create_backup_if_exists(path)?;
 
-    fs::write(path, raw).with_context(|| format!("Failed to write config: {}", path.display()))?;
+    crate::util::atomic_write(path, &raw)?;
 
     Ok(())
 }

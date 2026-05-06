@@ -3,6 +3,12 @@ use anyhow::{Context, Result};
 use std::path::Path;
 
 pub fn merge_nodes(base_path: &Path, nodes_path: &Path, output: Option<&Path>) -> Result<()> {
+    tracing::info!(
+        base = %base_path.display(),
+        nodes = %nodes_path.display(),
+        "Starting merge operation"
+    );
+
     let mut base = load_config(base_path)
         .with_context(|| format!("Failed to read base config: {}", base_path.display()))?;
 
@@ -29,10 +35,15 @@ pub fn merge_nodes(base_path: &Path, nodes_path: &Path, output: Option<&Path>) -
         .unwrap_or(false);
 
     if base_url_empty && fresh_url_non_empty {
+        tracing::debug!("Setting subscription URL from fresh config");
         base.subscription.url = fresh.subscription.url;
     }
 
     if base.subscription.auto_refresh == 0 && fresh.subscription.auto_refresh > 0 {
+        tracing::debug!(
+            auto_refresh = %fresh.subscription.auto_refresh,
+            "Setting auto_refresh from fresh config"
+        );
         base.subscription.auto_refresh = fresh.subscription.auto_refresh;
     }
 
@@ -48,16 +59,16 @@ pub fn merge_nodes(base_path: &Path, nodes_path: &Path, output: Option<&Path>) -
     save_config(output, &base)
         .with_context(|| format!("Failed to save merged config: {}", output.display()))?;
 
-    println!("Merged nodes:");
-    println!("  base config: {}", base_path.display());
-    println!("  nodes from:  {}", nodes_path.display());
-    println!("  output:      {}", output.display());
-    println!("  old nodes:   {}", old_count);
-    println!("  new nodes:   {}", new_count);
-
-    if has_subscription_url {
-        println!("  subscription URL: kept/set");
-    }
+    tracing::info!(
+        output = %output.display(),
+        old_nodes = %old_count,
+        new_nodes = %new_count,
+        rules_preserved = %base.rules.len(),
+        chains_preserved = %base.chains.len(),
+        profiles_preserved = %base.local_profiles.len(),
+        has_subscription = %has_subscription_url,
+        "Merge completed successfully"
+    );
 
     Ok(())
 }
