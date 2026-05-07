@@ -68,12 +68,14 @@ pub struct Node {
     pub server: String,
     pub port: u16,
 
+    // VLESS / VMess
     #[serde(default)]
     pub uuid: Option<String>,
 
     #[serde(default)]
     pub flow: Option<String>,
 
+    // TLS / Reality
     #[serde(default)]
     pub security: Option<String>,
 
@@ -88,6 +90,33 @@ pub struct Node {
 
     #[serde(default)]
     pub reality_short_id: Option<String>,
+
+    // Shadowsocks
+    #[serde(default)]
+    pub method: Option<String>,
+
+    #[serde(default)]
+    pub password: Option<String>,
+
+    // Trojan
+    // (uses password + server_name above)
+
+    // VMess
+    #[serde(default)]
+    pub alter_id: Option<u32>,
+
+    // Hysteria2
+    #[serde(default)]
+    pub up_mbps: Option<u32>,
+
+    #[serde(default)]
+    pub down_mbps: Option<u32>,
+
+    #[serde(default)]
+    pub obfs: Option<String>,
+
+    #[serde(default)]
+    pub obfs_password: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -176,6 +205,29 @@ pub fn validate_config(config: &SmartRouteConfig) -> Result<()> {
                     anyhow::bail!("VLESS node {} has no uuid", node.tag);
                 }
             }
+            "vmess" => {
+                if node.uuid.as_deref().unwrap_or("").is_empty() {
+                    anyhow::bail!("VMess node {} has no uuid", node.tag);
+                }
+            }
+            "shadowsocks" => {
+                if node.method.as_deref().unwrap_or("").is_empty() {
+                    anyhow::bail!("Shadowsocks node {} has no method", node.tag);
+                }
+                if node.password.as_deref().unwrap_or("").is_empty() {
+                    anyhow::bail!("Shadowsocks node {} has no password", node.tag);
+                }
+            }
+            "trojan" => {
+                if node.password.as_deref().unwrap_or("").is_empty() {
+                    anyhow::bail!("Trojan node {} has no password", node.tag);
+                }
+            }
+            "hysteria2" => {
+                if node.password.as_deref().unwrap_or("").is_empty() {
+                    anyhow::bail!("Hysteria2 node {} has no password", node.tag);
+                }
+            }
             other => anyhow::bail!("Unsupported node type: {}", other),
         }
 
@@ -248,7 +300,7 @@ pub fn validate_config(config: &SmartRouteConfig) -> Result<()> {
 
     for rule in &config.rules {
         match rule.rule_type.as_str() {
-            "domain" | "domain_suffix" | "domain_keyword" => {}
+            "domain" | "domain_suffix" | "domain_keyword" | "ip_cidr" | "geoip" | "geosite" => {}
             other => anyhow::bail!("Unsupported rule type: {}", other),
         }
 
@@ -315,6 +367,13 @@ mod tests {
             utls_fingerprint: Some("chrome".to_string()),
             reality_public_key: Some("test-key".to_string()),
             reality_short_id: Some("test-id".to_string()),
+            method: None,
+            password: None,
+            alter_id: None,
+            up_mbps: None,
+            down_mbps: None,
+            obfs: None,
+            obfs_password: None,
         }
     }
 
