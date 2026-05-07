@@ -121,6 +121,7 @@ pub fn generate_singbox_config(config: &SmartRouteConfig) -> Result<Value> {
 
     Ok(json!({
         "log": { "level": "info" },
+        "dns": build_dns_block(config),
         "inbounds": inbounds,
         "outbounds": outbounds,
         "route": {
@@ -277,4 +278,33 @@ fn node_to_outbound(node: &Node, tag: &str, detour: Option<&str>) -> Result<Valu
     }
 
     Ok(outbound)
+}
+
+fn build_dns_block(config: &SmartRouteConfig) -> Value {
+    if config.general.mode == "tun" {
+        json!({
+            "servers": [
+                {
+                    "tag": "dns-direct",
+                    "address": "https://1.1.1.1/dns-query",
+                    "detour": "direct"
+                },
+                {
+                    "tag": "dns-block",
+                    "address": "rcode://success"
+                }
+            ],
+            "rules": [
+                {
+                    "outbound": "any",
+                    "server": "dns-direct"
+                }
+            ],
+            "strategy": "prefer_ipv4",
+            "disable_cache": false,
+            "disable_expire": false
+        })
+    } else {
+        json!({})
+    }
 }
