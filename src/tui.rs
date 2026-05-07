@@ -110,8 +110,8 @@ fn ui_items() -> Vec<UiItem> {
             action: UiAction::SetGlobal,
             en: "6. Set global server / chain",
             ru: "6. Выбрать глобальный сервер / chain",
-            en_hint: "All traffic without a specific rule goes through this server or chain.",
-            ru_hint: "Весь трафик без отдельного правила идёт через этот сервер или chain.",
+            en_hint: "Sets final_outbound: used for ALL traffic that has no matching rule. Can be a chain to hide your real IP.",
+            ru_hint: "Устанавливает final_outbound: используется для ВСЕГО трафика без правил. Можно выбрать chain чтобы скрыть реальный IP.",
         },
         UiItem {
             action: UiAction::KillSwitchEnable,
@@ -219,10 +219,11 @@ fn ping_global_ms(config_path: &std::path::Path) -> Option<u64> {
             .and_then(|last| config.nodes.iter().find(|n| &n.tag == last))
     })?;
 
-    let addr = format!("{}:{}", node.server, node.port);
-    // Start timer BEFORE DNS resolve so we measure total connection time
+    // Parse IP directly — node.server should already be an IP after resolve.
+    // If it's still a domain, parse via to_socket_addrs but start timer before.
     let t = Instant::now();
-    let sa = addr.to_socket_addrs().ok()?.next()?;
+    let sa: std::net::SocketAddr = format!("{}:{}", node.server, node.port)
+        .to_socket_addrs().ok()?.next()?;
     TcpStream::connect_timeout(&sa, Duration::from_secs(3)).ok()?;
     Some(t.elapsed().as_millis() as u64)
 }
@@ -562,6 +563,19 @@ fn run_tui_action(action: UiAction, input: &mut PathBuf, lang: UiLang) -> Result
 
         UiAction::SetGlobal => {
             let mut config = load_config(input)?;
+            println!("{}", match lang {
+                UiLang::En => "Global server = final_outbound.",
+                UiLang::Ru => "Глобальный сервер = final_outbound.",
+            });
+            println!("{}", match lang {
+                UiLang::En => "Used for ALL traffic that has NO matching rule (site or app rule).",
+                UiLang::Ru => "Используется для ВСЕГО трафика, для которого НЕТ правила (сайт или приложение).",
+            });
+            println!("{}", match lang {
+                UiLang::En => "Tip: set a chain here to hide your real IP from DNS and destination.",
+                UiLang::Ru => "Совет: укажи chain чтобы DNS и сайт не узнали реальный IP.",
+            });
+            println!();
             println!("{}", match lang {
                 UiLang::En => "Available servers and chains:",
                 UiLang::Ru => "Доступные серверы и chains:",
