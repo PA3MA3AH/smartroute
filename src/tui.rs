@@ -220,8 +220,9 @@ fn ping_global_ms(config_path: &std::path::Path) -> Option<u64> {
     })?;
 
     let addr = format!("{}:{}", node.server, node.port);
-    let sa = addr.to_socket_addrs().ok()?.next()?;
+    // Start timer BEFORE DNS resolve so we measure total connection time
     let t = Instant::now();
+    let sa = addr.to_socket_addrs().ok()?.next()?;
     TcpStream::connect_timeout(&sa, Duration::from_secs(3)).ok()?;
     Some(t.elapsed().as_millis() as u64)
 }
@@ -321,10 +322,22 @@ pub fn run_tui(mut input: PathBuf) -> Result<()> {
         input = first_run_setup(lang)?;
     }
 
+    // Ping cache: refresh at most once every 10 seconds
+    let mut cached_ping: Option<u64> = None;
+    let mut last_ping_time = Instant::now()
+        .checked_sub(Duration::from_secs(11))
+        .unwrap_or_else(Instant::now);
+
     let _raw = RawModeGuard::new()?;
 
     loop {
-        draw_tui(&input, selected, lang, &items, last_message.as_deref())?;
+        // Refresh ping cache if stale
+        if last_ping_time.elapsed() >= Duration::from_secs(10) {
+            cached_ping = ping_global_ms(&input);
+            last_ping_time = Instant::now();
+        }
+
+        draw_tui(&input, selected, lang, &items, last_message.as_deref(), cached_ping)?;
 
         if let Event::Key(key) = event::read()? {
             match key.code {
@@ -381,6 +394,7 @@ fn draw_tui(
     lang: UiLang,
     items: &[UiItem],
     last_message: Option<&str>,
+    cached_ping: Option<u64>,
 ) -> Result<()> {
     let mut out = io::stdout();
     let (_, height) = terminal::size().unwrap_or((100, 30));
@@ -414,7 +428,7 @@ fn draw_tui(
     } else {
         match lang { UiLang::En => "Kill-switch: OFF", UiLang::Ru => "Kill-switch: ВЫКЛ" }
     };
-    let ping_str = match ping_global_ms(input) {
+    let ping_str = match cached_ping {
         Some(ms) => format!("{}ms", ms),
         None => match lang { UiLang::En => "ping: —".to_string(), UiLang::Ru => "пинг: —".to_string() },
     };
