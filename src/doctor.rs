@@ -1,5 +1,6 @@
 use crate::{
     config::{SmartRouteConfig, load_config, validate_config},
+    platform,
     singbox::generate_singbox_config,
 };
 use anyhow::Result;
@@ -554,7 +555,7 @@ fn check_generated_singbox(config: &SmartRouteConfig, report: &mut DoctorReport)
                 return;
             }
 
-            match Command::new("sing-box")
+            match Command::new(platform::singbox_bin())
                 .arg("check")
                 .arg("-c")
                 .arg(&path)
@@ -630,10 +631,7 @@ fn is_same_or_subdomain(name: &str, base: &str) -> bool {
 }
 
 fn temp_singbox_config_path() -> PathBuf {
-    PathBuf::from(format!(
-        "/tmp/smartroute-doctor-singbox-{}.json",
-        std::process::id()
-    ))
+    platform::temp_file("doctor-singbox", "json")
 }
 
 fn redact_url(url: &str) -> String {

@@ -1,8 +1,9 @@
 use crate::{
     config::{SmartRouteConfig, load_config, validate_config},
     killswitch::enable_killswitch,
+    platform,
     resolve::resolve_domains_to_ip,
-    runtime::{LOG_FILE, PID_FILE, start_smartroute, stop_smartroute},
+    runtime::{start_smartroute, stop_smartroute},
     singbox::generate_singbox_config,
 };
 use anyhow::{Context, Result};
@@ -21,6 +22,7 @@ pub fn health_check(input: &Path, domain: &str, full: bool) -> Result<()> {
     println!("SmartRoute health check");
     println!("────────────────────────────────────────────────────────");
     println!("Config: {}", input.display());
+    println!("Runtime dir: {}", platform::runtime_dir().display());
     println!(
         "SOCKS5: {}:{}",
         config.general.listen, config.general.listen_port
@@ -248,7 +250,7 @@ fn check_generated_singbox_config(config: &SmartRouteConfig) -> Result<()> {
     let path = temp_singbox_config_path();
     fs::write(&path, raw).with_context(|| format!("Failed to write {}", path.display()))?;
 
-    let output = Command::new("sing-box")
+    let output = Command::new(platform::singbox_bin())
         .arg("check")
         .arg("-c")
         .arg(&path)
@@ -266,7 +268,8 @@ fn check_generated_singbox_config(config: &SmartRouteConfig) -> Result<()> {
 }
 
 fn pid_file_process_is_running() -> Result<bool> {
-    let Ok(pid) = fs::read_to_string(PID_FILE) else {
+    let pid_file = platform::pid_file();
+    let Ok(pid) = fs::read_to_string(&pid_file) else {
         return Ok(false);
     };
 
@@ -276,56 +279,38 @@ fn pid_file_process_is_running() -> Result<bool> {
         return Ok(false);
     }
 
-    let status = Command::new("kill")
-        .arg("-0")
-        .arg(pid)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .context("Failed to check PID")?;
+    let pid = pid
+        .parse::<u32>()
+        .with_context(|| format!("Invalid PID in {}", pid_file.display()))?;
 
-    if !status.success() {
-        let _ = fs::remove_file(PID_FILE);
+    let running = platform::process_exists(pid)?;
+
+    if !running {
+        let _ = fs::remove_file(&pid_file);
     }
 
-    Ok(status.success())
+    Ok(running)
 }
 
 fn singbox_process_exists() -> bool {
-    Command::new("pgrep")
-        .arg("-x")
-        .arg("sing-box")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
+    platform::process_name_exists(&["sing-box", "sing-box.exe"])
 }
 
 fn adopt_existing_singbox_if_possible() -> Result<bool> {
-    let output = Command::new("pgrep")
-        .arg("-x")
-        .arg("sing-box")
-        .output()
-        .context("Failed to run pgrep")?;
+    let mut pids = platform::find_pids_by_name("sing-box")?;
 
-    if !output.status.success() {
-        return Ok(false);
+    if pids.is_empty() && cfg!(windows) {
+        pids = platform::find_pids_by_name("sing-box.exe")?;
     }
-
-    let output_text = String::from_utf8_lossy(&output.stdout);
-
-    let pids = output_text
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>();
 
     if pids.len() != 1 {
         return Ok(false);
     }
 
-    fs::write(PID_FILE, pids[0]).context("Failed to write SmartRoute PID file")?;
+    let pid_file = platform::pid_file();
+    platform::ensure_runtime_dir()?;
+    fs::write(&pid_file, pids[0].to_string())
+        .with_context(|| format!("Failed to write SmartRoute PID file: {}", pid_file.display()))?;
 
     Ok(true)
 }
@@ -341,13 +326,29 @@ fn socks_is_listening(config: &SmartRouteConfig) -> Result<bool> {
 }
 
 fn killswitch_is_enabled() -> bool {
-    Command::new("nft")
-        .args(["list", "table", "inet", "smartroute"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
+    if cfg!(windows) {
+        Command::new("netsh")
+            .args([
+                "advfirewall",
+                "firewall",
+                "show",
+                "rule",
+                "group=SmartRoute KillSwitch",
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    } else {
+        Command::new("nft")
+            .args(["list", "table", "inet", "smartroute"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    }
 }
 
 fn count_direct_rules(config: &SmartRouteConfig) -> usize {
@@ -373,7 +374,7 @@ fn curl_head(url: &str, socks: Option<&str>, max_time: u64) -> Result<bool> {
             &max_time.to_string(),
             "-sS",
             "-o",
-            "/dev/null",
+            platform::null_device(),
             "-w",
             "%{http_code}",
         ])
@@ -392,10 +393,7 @@ fn curl_head(url: &str, socks: Option<&str>, max_time: u64) -> Result<bool> {
 }
 
 fn temp_singbox_config_path() -> PathBuf {
-    PathBuf::from(format!(
-        "/tmp/smartroute-health-singbox-{}.json",
-        std::process::id()
-    ))
+    platform::temp_file("health-singbox", "json")
 }
 
 fn normalize_host(value: &str) -> String {
@@ -429,6 +427,6 @@ fn tail_log_hint() {
     let _ = fs::File::options()
         .create(true)
         .append(true)
-        .open(LOG_FILE)
+        .open(platform::log_file())
         .and_then(|mut file| writeln!(file, "SmartRoute health check touched log"));
 }
