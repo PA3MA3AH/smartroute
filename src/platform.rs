@@ -115,7 +115,10 @@ fn process_exists_impl(pid: u32) -> Result<bool> {
     }
 
     let text = String::from_utf8_lossy(&output.stdout);
-    Ok(text.lines().any(|line| line.split(',').any(|field| field.trim_matches('"') == pid.to_string())))
+    Ok(text.lines().any(|line| {
+        line.split(',')
+            .any(|field| field.trim_matches('"') == pid.to_string())
+    }))
 }
 
 #[cfg(not(windows))]
@@ -189,10 +192,13 @@ fn find_pids_by_name_impl(name: &str) -> Result<Vec<u32>> {
 
 #[cfg(windows)]
 fn find_pids_by_name_impl(name: &str) -> Result<Vec<u32>> {
-    let process_name = normalize_windows_process_name(name).trim_end_matches(".exe").to_string();
+    let process_name = normalize_windows_process_name(name)
+        .trim_end_matches(".exe")
+        .to_string();
+    let escaped = process_name.replace('\'', "''");
     let script = format!(
         "Get-Process -Name '{}' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id",
-        process_name.replace(''', "''")
+        escaped
     );
 
     let output = Command::new("powershell")
