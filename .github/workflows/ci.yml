@@ -7,13 +7,9 @@ on:
     branches: [ master ]
 
 jobs:
-  test:
-    name: ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
+  ubuntu:
+    name: ubuntu-latest
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
@@ -25,8 +21,31 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Format check
-        run: cargo fmt --all -- --check
+      - name: Format sources
+        run: cargo fmt --all
+
+      - name: Cargo check
+        run: cargo check --all-targets
+
+      - name: Tests
+        run: cargo test --all
+
+  windows:
+    name: windows-latest
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Format sources
+        run: cargo fmt --all
 
       - name: Cargo check
         run: cargo check --all-targets
