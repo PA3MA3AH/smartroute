@@ -108,7 +108,26 @@ pub fn backups_dir() -> Result<PathBuf> {
         return Ok(PathBuf::from(state_home).join("smartroute").join("backups"));
     }
 
-    let home = env::var("HOME").context("HOME is not set")?;
+    #[cfg(windows)]
+    {
+        if let Ok(local_app_data) = env::var("LOCALAPPDATA") {
+            return Ok(PathBuf::from(local_app_data)
+                .join("SmartRoute")
+                .join("backups"));
+        }
+
+        if let Ok(profile) = env::var("USERPROFILE") {
+            return Ok(PathBuf::from(profile)
+                .join("AppData")
+                .join("Local")
+                .join("SmartRoute")
+                .join("backups"));
+        }
+    }
+
+    let home = env::var("HOME").or_else(|_| env::var("USERPROFILE")).context(
+        "Neither HOME nor USERPROFILE is set; cannot determine SmartRoute backup directory",
+    )?;
 
     Ok(PathBuf::from(home)
         .join(".local")
@@ -199,7 +218,7 @@ fn unique_backup_path(input: &Path, dir: &Path) -> Result<PathBuf> {
         }
     }
 
-    anyhow::bail!("Failed to create unique backup filename");
+    anyhow::bail!("Failed to create unique backup filename")
 }
 
 fn backup_stem(input: &Path) -> String {
