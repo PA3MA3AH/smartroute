@@ -1,5 +1,6 @@
 use crate::{
     config::{load_config, validate_config},
+    platform,
     resolve::resolve_domains_to_ip,
     singbox::generate_singbox_config,
 };
@@ -7,16 +8,32 @@ use anyhow::{Context, Result};
 use std::{
     fs,
     net::{TcpStream, ToSocketAddrs},
-    path::Path,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
     thread,
     time::Duration,
 };
 
-pub const RUNTIME_DIR: &str = "/run/smartroute";
-pub const PID_FILE: &str = "/run/smartroute/smartroute.pid";
-pub const LOG_FILE: &str = "/run/smartroute/sing-box.log";
-pub const SINGBOX_CONFIG_FILE: &str = "/run/smartroute/sing-box.json";
+pub const RUNTIME_DIR: &str = if cfg!(windows) {
+    "%PROGRAMDATA%\\SmartRoute\\run"
+} else {
+    "/run/smartroute"
+};
+pub const PID_FILE: &str = if cfg!(windows) {
+    "%PROGRAMDATA%\\SmartRoute\\run\\smartroute.pid"
+} else {
+    "/run/smartroute/smartroute.pid"
+};
+pub const LOG_FILE: &str = if cfg!(windows) {
+    "%PROGRAMDATA%\\SmartRoute\\run\\sing-box.log"
+} else {
+    "/run/smartroute/sing-box.log"
+};
+pub const SINGBOX_CONFIG_FILE: &str = if cfg!(windows) {
+    "%PROGRAMDATA%\\SmartRoute\\run\\sing-box.json"
+} else {
+    "/run/smartroute/sing-box.json"
+};
 
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -55,13 +72,16 @@ pub fn start_smartroute(input: &Path) -> Result<()> {
     let config = load_config(input)?;
     validate_config(&config)?;
 
-    fs::create_dir_all(RUNTIME_DIR).context("Failed to create /run/smartroute")?;
+    let runtime_dir = platform::ensure_runtime_dir()?;
+    let pid_file = platform::pid_file();
+    let log_file_path = platform::log_file();
+    let singbox_config_file = platform::singbox_config_file();
 
     if is_running()? {
         anyhow::bail!("SmartRoute is already running");
     }
 
-    let _ = fs::remove_file(PID_FILE);
+    let _ = fs::remove_file(&pid_file);
 
     tracing::info!("Generating sing-box configuration");
     let singbox_config = generate_singbox_config(&config)?;
@@ -69,23 +89,32 @@ pub fn start_smartroute(input: &Path) -> Result<()> {
     let pretty = serde_json::to_string_pretty(&singbox_config)
         .context("Failed to serialize sing-box config")?;
 
-    crate::util::atomic_write(Path::new(SINGBOX_CONFIG_FILE), &pretty)
-        .with_context(|| format!("Failed to write {}", SINGBOX_CONFIG_FILE))?;
+    crate::util::atomic_write(&singbox_config_file, &pretty)
+        .with_context(|| format!("Failed to write {}", singbox_config_file.display()))?;
 
-    let log_file = fs::File::create(LOG_FILE).context("Failed to create sing-box log file")?;
+    let log_file = fs::File::create(&log_file_path)
+        .with_context(|| format!("Failed to create sing-box log file: {}", log_file_path.display()))?;
 
-    tracing::info!("Starting sing-box process");
-    let mut child = Command::new("sing-box")
+    let singbox_bin = platform::singbox_bin();
+
+    tracing::info!(
+        binary = %singbox_bin,
+        runtime_dir = %runtime_dir.display(),
+        "Starting sing-box process"
+    );
+
+    let mut child = Command::new(&singbox_bin)
         .arg("run")
         .arg("-c")
-        .arg(SINGBOX_CONFIG_FILE)
+        .arg(&singbox_config_file)
         .stdout(Stdio::from(log_file.try_clone()?))
         .stderr(Stdio::from(log_file))
         .spawn()
-        .context("Failed to start sing-box. Is sing-box installed?")?;
+        .with_context(|| format!("Failed to start {}. Is sing-box installed and in PATH?", singbox_bin))?;
 
     let pid = child.id();
-    fs::write(PID_FILE, pid.to_string()).context("Failed to write PID file")?;
+    fs::write(&pid_file, pid.to_string())
+        .with_context(|| format!("Failed to write PID file: {}", pid_file.display()))?;
 
     tracing::debug!(
         pid = %pid,
@@ -95,15 +124,13 @@ pub fn start_smartroute(input: &Path) -> Result<()> {
         "Waiting for sing-box to become ready"
     );
 
-    // Wait for sing-box to become ready by checking if the port is available
     let wait_result = wait_for_port(&config.general.listen, config.general.listen_port, STARTUP_TIMEOUT);
 
-    // Check if process is still running
     if let Some(status) = child
         .try_wait()
         .context("Failed to check sing-box process status")?
     {
-        let log = fs::read_to_string(LOG_FILE).unwrap_or_default();
+        let log = fs::read_to_string(&log_file_path).unwrap_or_default();
         let tail = last_lines(&log, 60);
 
         tracing::error!(
@@ -112,6 +139,8 @@ pub fn start_smartroute(input: &Path) -> Result<()> {
             "sing-box exited immediately"
         );
 
+        let _ = fs::remove_file(&pid_file);
+
         anyhow::bail!(
             "sing-box exited immediately with status: {}\nLast log lines:\n{}",
             status,
@@ -119,9 +148,8 @@ pub fn start_smartroute(input: &Path) -> Result<()> {
         );
     }
 
-    // If port check failed but process is still running, report the error
     if let Err(e) = wait_result {
-        let log = fs::read_to_string(LOG_FILE).unwrap_or_default();
+        let log = fs::read_to_string(&log_file_path).unwrap_or_default();
         let tail = last_lines(&log, 60);
 
         tracing::error!(
@@ -145,8 +173,8 @@ pub fn start_smartroute(input: &Path) -> Result<()> {
         pid = %pid,
         mode = %config.general.mode,
         listen = %format!("{}:{}", config.general.listen, config.general.listen_port),
-        config_file = %SINGBOX_CONFIG_FILE,
-        log_file = %LOG_FILE,
+        config_file = %singbox_config_file.display(),
+        log_file = %log_file_path.display(),
         "SmartRoute started successfully"
     );
 
@@ -154,33 +182,20 @@ pub fn start_smartroute(input: &Path) -> Result<()> {
 }
 
 pub fn stop_smartroute() -> Result<()> {
-    let pid = match fs::read_to_string(PID_FILE) {
-        Ok(pid) => pid.trim().to_string(),
+    let pid_file = platform::pid_file();
+
+    let pid = match read_pid(&pid_file) {
+        Ok(pid) => pid,
         Err(_) => {
             tracing::info!("SmartRoute is not running (no PID file)");
             return Ok(());
         }
     };
 
-    let running = Command::new("kill")
-        .arg("-0")
-        .arg(&pid)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .context("Failed to check SmartRoute process")?
-        .success();
-
-    if running {
+    if platform::process_exists(pid)? {
         tracing::info!(pid = %pid, "Stopping SmartRoute");
-        let status = Command::new("kill")
-            .arg(&pid)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .context("Failed to stop SmartRoute")?;
 
-        if status.success() {
+        if platform::stop_process(pid)? {
             tracing::info!(pid = %pid, "SmartRoute stopped successfully");
         } else {
             tracing::error!(pid = %pid, "Failed to stop SmartRoute process");
@@ -189,34 +204,27 @@ pub fn stop_smartroute() -> Result<()> {
         tracing::warn!(pid = %pid, "SmartRoute process was not running, removing stale PID file");
     }
 
-    let _ = fs::remove_file(PID_FILE);
+    let _ = fs::remove_file(&pid_file);
 
     Ok(())
 }
 
 pub fn status_smartroute() -> Result<()> {
-    match fs::read_to_string(PID_FILE) {
+    let pid_file = platform::pid_file();
+    let log_file = platform::log_file();
+
+    match read_pid(&pid_file) {
         Ok(pid) => {
-            let pid = pid.trim();
-
-            let status = Command::new("kill")
-                .arg("-0")
-                .arg(pid)
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .context("Failed to check SmartRoute status")?;
-
-            if status.success() {
+            if platform::process_exists(pid)? {
                 tracing::info!(
                     pid = %pid,
-                    log_file = %LOG_FILE,
+                    log_file = %log_file.display(),
                     "SmartRoute is running"
                 );
             } else {
                 tracing::warn!(
                     pid = %pid,
-                    pid_file = %PID_FILE,
+                    pid_file = %pid_file.display(),
                     "SmartRoute PID file exists, but process is not running"
                 );
             }
@@ -230,25 +238,28 @@ pub fn status_smartroute() -> Result<()> {
 }
 
 fn is_running() -> Result<bool> {
-    let Ok(pid) = fs::read_to_string(PID_FILE) else {
+    let pid_file = platform::pid_file();
+
+    let Ok(pid) = read_pid(&pid_file) else {
         return Ok(false);
     };
 
-    let pid = pid.trim();
+    let running = platform::process_exists(pid)?;
 
-    let status = Command::new("kill")
-        .arg("-0")
-        .arg(pid)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .context("Failed to check old SmartRoute process")?;
-
-    if !status.success() {
-        let _ = fs::remove_file(PID_FILE);
+    if !running {
+        let _ = fs::remove_file(&pid_file);
     }
 
-    Ok(status.success())
+    Ok(running)
+}
+
+fn read_pid(path: &Path) -> Result<u32> {
+    let raw = fs::read_to_string(path)
+        .with_context(|| format!("Failed to read PID file: {}", path.display()))?;
+
+    raw.trim()
+        .parse::<u32>()
+        .with_context(|| format!("Invalid PID in {}", path.display()))
 }
 
 fn last_lines(text: &str, max_lines: usize) -> String {
