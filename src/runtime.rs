@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use std::{
     fs,
     net::{TcpStream, ToSocketAddrs},
-    path::{Path, PathBuf},
+    path::Path,
     process::{Command, Stdio},
     thread,
     time::Duration,
