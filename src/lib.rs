@@ -7,7 +7,6 @@ pub mod daemon;
 pub mod diagnosis;
 pub mod dnstest;
 pub mod doctor;
-pub mod failover;
 pub mod health;
 pub mod killswitch;
 pub mod leaktest;
