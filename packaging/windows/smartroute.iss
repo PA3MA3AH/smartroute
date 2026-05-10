@@ -22,7 +22,6 @@ DisableProgramGroupPage=yes
 LicenseFile=LICENSE
 OutputDir=dist\windows-installer
 OutputBaseFilename=SmartRoute-Setup-x64
-SetupIconFile=packaging\windows\smartroute.ico
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
