@@ -19,8 +19,8 @@ AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\SmartRoute
 DefaultGroupName=SmartRoute
 DisableProgramGroupPage=yes
-LicenseFile=LICENSE
-OutputDir=dist\windows-installer
+LicenseFile=..\..\LICENSE
+OutputDir=..\..\dist\windows-installer
 OutputBaseFilename=SmartRoute-Setup-x64
 Compression=lzma2
 SolidCompression=yes
@@ -39,10 +39,10 @@ Name: "addtopath"; Description: "Add SmartRoute to PATH"; GroupDescription: "Win
 Name: "desktopicon"; Description: "Create desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: unchecked
 
 [Files]
-Source: "target\release\smartroute.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
-Source: "packaging\windows\README-Windows.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\target\release\smartroute.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "README-Windows.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Dirs]
 Name: "{commonappdata}\SmartRoute\run"; Permissions: users-modify
