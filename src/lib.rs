@@ -14,6 +14,7 @@ pub mod leaktest;
 pub mod mask;
 pub mod merge;
 pub mod picker;
+pub mod platform;
 pub mod resolve;
 pub mod runtime;
 pub mod singbox;
