@@ -1,0 +1,66 @@
+name: Windows Installer
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-installer:
+    name: Build Windows installer
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Test release binary
+        run: .\target\release\smartroute.exe --help
+
+      - name: Install Inno Setup
+        shell: powershell
+        run: choco install innosetup --yes --no-progress
+
+      - name: Set installer version
+        shell: powershell
+        run: |
+          if ($env:GITHUB_REF_TYPE -eq "tag") {
+            $version = $env:GITHUB_REF_NAME.TrimStart("v")
+          } else {
+            $version = "0.1.0-dev"
+          }
+          "SMARTROUTE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "SMARTROUTE_VERSION=$version"
+
+      - name: Build installer
+        shell: powershell
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          & $iscc packaging\windows\smartroute.iss
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmartRoute-Setup-x64
+          path: dist/windows-installer/SmartRoute-Setup-x64.exe
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/windows-installer/SmartRoute-Setup-x64.exe
+          generate_release_notes: true
